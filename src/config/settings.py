@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 
 import httpx
@@ -13,6 +13,16 @@ from dotenv import load_dotenv
 SETTINGS_PATH = Path.home() / ".whisperflow" / "config.json"
 
 _PATH_FIELDS = {"models_dir", "log_dir"}
+
+# Env vars that override the corresponding Settings fields (lower priority than config.json is
+# intentionally reversed here: env vars win over config.json so the user can override without
+# editing the file — same semantics as ANTHROPIC_API_KEY).
+_ENV_FIELD_MAP: dict[str, str] = {
+    "HOTKEY": "hotkey",
+    "WHISPER_MODEL": "whisper_model",
+    "FORMATTER_BACKEND": "formatter_backend",
+    "OLLAMA_MODEL": "ollama_model",
+}
 
 
 @dataclass
@@ -35,8 +45,18 @@ class Settings:
     log_dir: Path = field(default_factory=lambda: Path.home() / ".whisperflow" / "logs")
 
 
+def _apply_env_overrides(settings: Settings) -> Settings:
+    """Overlay HOTKEY / WHISPER_MODEL / FORMATTER_BACKEND / OLLAMA_MODEL from environment."""
+    overrides: dict = {}
+    for env_var, field_name in _ENV_FIELD_MAP.items():
+        val = os.getenv(env_var)
+        if val:
+            overrides[field_name] = val
+    return replace(settings, **overrides) if overrides else settings
+
+
 def load_settings() -> Settings:
-    """Read ~/.whisperflow/config.json; API key from .env/environment only."""
+    """Read ~/.whisperflow/config.json; env vars overlay config; API key from env only."""
     load_dotenv(override=False)
 
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +66,7 @@ def load_settings() -> Settings:
 
     if not SETTINGS_PATH.exists():
         save_settings(defaults)
-        return Settings(anthropic_api_key=api_key)
+        return _apply_env_overrides(Settings(anthropic_api_key=api_key))
 
     try:
         data = json.loads(SETTINGS_PATH.read_text())
@@ -55,9 +75,9 @@ def load_settings() -> Settings:
         for name in _PATH_FIELDS:
             if name in filtered:
                 filtered[name] = Path(filtered[name])
-        return Settings(**filtered, anthropic_api_key=api_key)
+        return _apply_env_overrides(Settings(**filtered, anthropic_api_key=api_key))
     except Exception:
-        return Settings(anthropic_api_key=api_key)
+        return _apply_env_overrides(Settings(anthropic_api_key=api_key))
 
 
 def save_settings(settings: Settings) -> None:
