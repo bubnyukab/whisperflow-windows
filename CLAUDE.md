@@ -31,6 +31,18 @@ Target latency: <700ms end-to-end on GPU, <1.5s on CPU-only machines.
 - python-dotenv (optional API key loading)
 - PyInstaller (packaging to .exe)
 
+## Environment
+- Always use the `.venv` virtual environment in the project root
+- Activate with: `source .venv/bin/activate`
+- Install deps with: `.venv/bin/pip install -r requirements.txt`
+- Run all Python commands through `.venv/bin/python`, not system python3
+
+## Linux System Dependencies
+Before installing Python requirements, ensure these are installed:
+```bash
+sudo apt-get install portaudio19-dev python3-pyaudio python3-dev
+```
+
 ## Available MCP Servers
 - **Superpowers** — filesystem ops, running scripts, reading logs
 - **Context7** — look up latest docs for RealtimeSTT, faster-whisper,

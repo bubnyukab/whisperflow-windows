@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.config.settings import Settings
+from src.formatting.claude_formatter import ClaudeFormatter
 from src.formatting.fast_formatter import FastFormatter, FastFormatterResult, format_text, word_count
 from src.formatting.ollama_formatter import OllamaFormatter
 
@@ -192,6 +193,98 @@ class TestOllamaFormatterClass:
         fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
         with patch("httpx.get", return_value=MagicMock(status_code=503)):
             assert fmt.is_available() is False
+
+
+class TestClaudeFormatterClass:
+    """Tests for the ClaudeFormatter class (mocked anthropic.Anthropic)."""
+
+    def _make_client(self, text: str) -> MagicMock:
+        content_block = MagicMock()
+        content_block.text = text
+        message = MagicMock()
+        message.content = [content_block]
+        client = MagicMock()
+        client.messages.create.return_value = message
+        return client
+
+    def test_happy_path_returns_formatted_text(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        mock_client = self._make_client("Send an email to John.")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            assert fmt.format("send email to john") == "Send an email to John."
+
+    def test_exception_returns_raw_transcript(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = RuntimeError("api error")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            assert fmt.format("raw text") == "raw text"
+
+    def test_context_hint_appended_to_system_prompt(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        mock_client = self._make_client("ok")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            fmt.format("some text", context_hint="composing an email")
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert "composing an email" in call_kwargs["system"]
+
+    def test_no_context_hint_system_prompt_unchanged(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        mock_client = self._make_client("ok")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            fmt.format("some text")
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert "Context:" not in call_kwargs["system"]
+
+    def test_model_passed_to_api(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test", model="claude-haiku-4-5-20251001")
+        mock_client = self._make_client("ok")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            fmt.format("test")
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
+
+    def test_raw_transcript_in_user_message(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        mock_client = self._make_client("ok")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            fmt.format("hello world")
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["messages"][0]["content"] == "hello world"
+
+    def test_strips_whitespace_from_response(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        mock_client = self._make_client("  Formatted.  \n")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            assert fmt.format("raw") == "Formatted."
+
+    def test_empty_response_falls_back_to_raw(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        mock_client = self._make_client("")
+        with patch("anthropic.Anthropic", return_value=mock_client):
+            assert fmt.format("fallback text") == "fallback text"
+
+    def test_is_available_true_with_api_key(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-ant-test123")
+        assert fmt.is_available() is True
+
+    def test_is_available_false_without_api_key(self) -> None:
+        fmt = ClaudeFormatter(api_key="")
+        assert fmt.is_available() is False
+
+    def test_is_available_no_network_call(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-test")
+        with patch("anthropic.Anthropic") as mock_cls:
+            fmt.is_available()
+        mock_cls.assert_not_called()
+
+    def test_api_key_passed_to_client(self) -> None:
+        fmt = ClaudeFormatter(api_key="sk-mykey")
+        mock_client = self._make_client("ok")
+        with patch("anthropic.Anthropic", return_value=mock_client) as mock_cls:
+            fmt.format("test")
+        mock_cls.assert_called_once()
+        assert mock_cls.call_args.kwargs.get("api_key") == "sk-mykey"
 
 
 class TestOllamaFormatter:

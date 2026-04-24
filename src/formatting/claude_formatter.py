@@ -12,10 +12,53 @@ from src.config.settings import Settings
 log = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are a transcription editor. Fix grammar, punctuation, and formatting of the "
-    "spoken text below. Preserve the speaker's meaning exactly. "
-    "Output only the corrected text, nothing else."
+    "You are a voice transcription formatter. The user dictated text using "
+    "speech-to-text. Your job:\n"
+    "1. Remove filler words (um, uh, like, you know)\n"
+    "2. Fix grammar, punctuation, capitalisation\n"
+    "3. Infer the user's actual intent — e.g. 'send email to sarah about meeting' "
+    "becomes 'Send an email to Sarah about the meeting.'\n"
+    "4. Preserve tone (casual stays casual, formal stays formal)\n"
+    "5. Format as a list if it sounds like one\n"
+    "Return ONLY the formatted text. No explanation, no preamble, no quotes."
 )
+
+
+class ClaudeFormatter:
+    """Formats voice transcripts via the Claude API."""
+
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514", timeout: float = 10.0) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._timeout = timeout
+
+    def format(self, raw_transcript: str, context_hint: str = "") -> str:
+        """Send transcript to Claude API and return cleaned text.
+
+        Falls back to raw_transcript on any error — never raises.
+        """
+        import anthropic
+
+        system = _SYSTEM_PROMPT
+        if context_hint:
+            system = f"{system}\n\nContext: {context_hint}"
+        try:
+            client = anthropic.Anthropic(api_key=self._api_key, timeout=self._timeout)
+            message = client.messages.create(
+                model=self._model,
+                max_tokens=1024,
+                system=system,
+                messages=[{"role": "user", "content": raw_transcript}],
+            )
+            text = message.content[0].text.strip()
+            return text or raw_transcript
+        except Exception:
+            log.exception("ClaudeFormatter.format failed")
+            return raw_transcript
+
+    def is_available(self) -> bool:
+        """Return True if an API key is configured (no network call)."""
+        return bool(self._api_key)
 
 
 @dataclass
