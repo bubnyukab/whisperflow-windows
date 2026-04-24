@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import time
 
-import keyboard
 import pyperclip
+from pynput.keyboard import Controller as _KbController, Key as _Key
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +38,10 @@ class TextInjector:
             time.sleep(0.05)
 
             # 4. Simulate paste
-            keyboard.send("ctrl+v")
+            _kb = _KbController()
+            with _kb.pressed(_Key.ctrl):
+                _kb.press('v')
+                _kb.release('v')
 
             # 5. Wait for application to consume paste before restoring
             time.sleep(0.5)
