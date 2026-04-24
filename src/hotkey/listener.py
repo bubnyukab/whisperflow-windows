@@ -1,4 +1,4 @@
-"""Global hotkey listener wrapping the keyboard library."""
+"""Global hotkey listener using pynput (no root required on Linux)."""
 
 from __future__ import annotations
 
@@ -6,18 +6,34 @@ import logging
 import time
 from typing import Callable
 
-import keyboard
+from pynput import keyboard
 
 log = logging.getLogger(__name__)
 
 _DEBOUNCE_S = 0.15
+_KEY_ALIASES: dict[str, str] = {"win": "cmd", "windows": "cmd"}
+
+
+def _to_pynput_format(hotkey: str) -> str:
+    """Convert 'keyboard'-style 'ctrl+f9' to pynput '<ctrl>+<f9>'.
+
+    Single alphanumeric characters stay bare; everything else gets angle brackets.
+    'win' is aliased to 'cmd' (pynput's name for the Windows key).
+    """
+    tokens: list[str] = []
+    for part in hotkey.lower().split("+"):
+        part = part.strip()
+        part = _KEY_ALIASES.get(part, part)
+        tokens.append(part if (len(part) == 1 and part.isalnum()) else f"<{part}>")
+    return "+".join(tokens)
 
 
 class HotkeyListener:
     """Listens for a global hotkey and fires press/release callbacks.
 
-    HOLD mode:   on_press fires on keydown, on_release fires on keyup.
-    TOGGLE mode: on_press fires on 1st keydown, on_release fires on 2nd keydown.
+    HOLD mode:   on_press fires when the combo is fully held, on_release fires
+                 when any key in the combo is lifted.
+    TOGGLE mode: on_press fires on 1st activation, on_release fires on 2nd.
 
     Debounce: re-fires within 150 ms of the previous event are dropped.
     All callback exceptions are caught and logged — the listener never crashes.
@@ -35,44 +51,83 @@ class HotkeyListener:
         self._on_release = on_release
         self._mode = mode
         self._listening = False
-        self._handles: list[object] = []
+        self._listener: keyboard.Listener | None = None
+        self._hk: keyboard.HotKey | None = None
+        self._hotkey_keys: frozenset = frozenset()
         self._last_press = 0.0
         self._last_release = 0.0
         self._toggled = False
+        self._active = False  # True while combo is held (hold mode only)
 
     @property
     def is_listening(self) -> bool:
         return self._listening
 
     def start(self) -> None:
-        """Register hotkeys — non-blocking; keyboard library runs its own thread."""
+        """Register hotkey listener — non-blocking; runs in a daemon thread."""
         if self._listening:
             return
-        if self._mode == "toggle":
-            h = keyboard.add_hotkey(self._hotkey, self._handle_toggle)
-            self._handles = [h]
-        else:  # hold
-            h_down = keyboard.add_hotkey(self._hotkey, self._handle_press)
-            h_up = keyboard.add_hotkey(
-                self._hotkey, self._handle_release, trigger_on_release=True
-            )
-            self._handles = [h_down, h_up]
+        pynput_hotkey = _to_pynput_format(self._hotkey)
+        parsed = keyboard.HotKey.parse(pynput_hotkey)
+        self._hotkey_keys = frozenset(parsed)
+        self._hk = keyboard.HotKey(parsed, self._on_activate)
+        self._active = False
+        self._toggled = False
+        self._listener = keyboard.Listener(
+            on_press=self._raw_press,
+            on_release=self._raw_release,
+        )
+        self._listener.start()
         self._listening = True
         log.debug("HotkeyListener started: %s (%s)", self._hotkey, self._mode)
 
     def stop(self) -> None:
-        """Unregister all hotkey hooks."""
+        """Stop and unregister the hotkey listener."""
         self._listening = False
-        for h in self._handles:
+        if self._listener is not None:
             try:
-                keyboard.remove_hotkey(h)
+                self._listener.stop()
             except Exception:
-                log.exception("HotkeyListener.stop failed to remove hotkey")
-        self._handles = []
+                log.exception("HotkeyListener.stop failed to stop listener")
+            self._listener = None
+        self._hk = None
         log.debug("HotkeyListener stopped")
 
     # ------------------------------------------------------------------
-    # Internal handlers
+    # pynput raw event handlers
+    # ------------------------------------------------------------------
+
+    def _raw_press(self, key: keyboard.Key | keyboard.KeyCode) -> None:
+        if self._listener is None or self._hk is None:
+            return
+        try:
+            self._hk.press(self._listener.canonical(key))
+        except Exception:
+            log.exception("HotkeyListener._raw_press error")
+
+    def _raw_release(self, key: keyboard.Key | keyboard.KeyCode) -> None:
+        if self._listener is None or self._hk is None:
+            return
+        try:
+            canonical = self._listener.canonical(key)
+            # Hold mode: firing any hotkey key while combo is active triggers release.
+            if self._mode == "hold" and self._active and canonical in self._hotkey_keys:
+                self._active = False
+                self._handle_release()
+            self._hk.release(canonical)
+        except Exception:
+            log.exception("HotkeyListener._raw_release error")
+
+    def _on_activate(self) -> None:
+        """Called by HotKey when all combo keys are simultaneously pressed."""
+        if self._mode == "toggle":
+            self._handle_toggle()
+        else:
+            self._active = True
+            self._handle_press()
+
+    # ------------------------------------------------------------------
+    # Debounced callback dispatchers
     # ------------------------------------------------------------------
 
     def _handle_press(self) -> None:
