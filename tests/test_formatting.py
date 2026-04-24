@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.config.settings import Settings
-from src.formatting.fast_formatter import FastFormatterResult, format_text, word_count
+from src.formatting.fast_formatter import FastFormatter, FastFormatterResult, format_text, word_count
 
 
 class TestFastFormatter:
@@ -51,6 +51,61 @@ class TestWordCount:
 
     def test_whitespace_only(self) -> None:
         assert word_count("   ") == 0
+
+
+class TestFastFormatterClass:
+    """Tests for the FastFormatter class (filler-word stripping + rules)."""
+
+    def test_strips_filler_at_start(self) -> None:
+        assert FastFormatter().format("um send an email to john") == "Send an email to john."
+
+    def test_strips_multiple_fillers(self) -> None:
+        assert FastFormatter().format("so basically i think we should uh meet tomorrow") == "I think we should meet tomorrow."
+
+    def test_preserves_existing_punctuation(self) -> None:
+        assert FastFormatter().format("Hello, how are you?") == "Hello, how are you?"
+
+    def test_empty_string(self) -> None:
+        assert FastFormatter().format("") == ""
+
+    def test_only_fillers_returns_empty_no_period(self) -> None:
+        assert FastFormatter().format("um uh like") == ""
+
+    def test_case_insensitive_stripping(self) -> None:
+        assert FastFormatter().format("UM send it") == "Send it."
+
+    def test_whole_word_matching_does_not_strip_prefix(self) -> None:
+        # "like" should not clobber "likely"
+        assert FastFormatter().format("a likely outcome") == "A likely outcome."
+
+    def test_multi_word_filler_stripped(self) -> None:
+        assert FastFormatter().format("you know it was great") == "It was great."
+
+    def test_consecutive_fillers_yield_empty(self) -> None:
+        assert FastFormatter().format("um uh") == ""
+
+    def test_question_mark_preserved(self) -> None:
+        assert FastFormatter().format("um is this working?") == "Is this working?"
+
+    def test_exclamation_preserved(self) -> None:
+        assert FastFormatter().format("uh wow that works!") == "Wow that works!"
+
+    def test_capitalises_first_letter(self) -> None:
+        assert FastFormatter().format("actually send the report")[0] == "S"
+
+    def test_returns_str(self) -> None:
+        assert isinstance(FastFormatter().format("hello"), str)
+
+    def test_collapses_internal_whitespace(self) -> None:
+        result = FastFormatter().format("so   hello   world")
+        assert "  " not in result
+
+    def test_latency_under_5ms(self) -> None:
+        import time as _time
+        ff = FastFormatter()
+        t0 = _time.perf_counter()
+        ff.format("um so basically this is a test you know right")
+        assert (_time.perf_counter() - t0) * 1000 < 5.0
 
 
 class TestOllamaFormatter:
