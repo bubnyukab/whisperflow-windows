@@ -57,6 +57,8 @@ class RealtimeRecorder:
                 language=self._settings.language,
                 post_speech_silence_duration=self._settings.vad_silence_ms / 1000,
                 silero_sensitivity=0.4,
+                compute_type="int8",  # fastest on CPU; eliminates the float32 fallback warning
+                beam_size=1,          # greedy decoding — ~30% faster, imperceptible accuracy loss
                 spinner=False,
                 level=logging.WARNING,
             )

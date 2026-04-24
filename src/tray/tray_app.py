@@ -47,13 +47,17 @@ def make_circle_icon(state: str) -> Image.Image:
 class TrayApp:
     """System tray application — owns the main thread via pystray.Icon.run()."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        on_hotkey_changed: Optional[Callable[["Settings"], None]] = None,
+    ) -> None:
         self._settings = settings
+        self._on_hotkey_changed = on_hotkey_changed
         self._state = "idle"
         self._state_lock = threading.Lock()
         self._tray: Optional[pystray.Icon] = None
         self._done_timer: Optional[threading.Timer] = None
-        # Optional pipeline callbacks — wired by main.py (Prompt 11)
         self._on_hotkey_press: Optional[Callable] = None
         self._on_hotkey_release: Optional[Callable] = None
         self._indicator = RecordingIndicator()
@@ -161,7 +165,13 @@ class TrayApp:
         SettingsWindow(self._settings, on_save=self._on_settings_saved).run()
 
     def _on_settings_saved(self, new_settings: Settings) -> None:
+        old = self._settings
         self._settings = new_settings
+        if self._on_hotkey_changed and (
+            new_settings.hotkey != old.hotkey
+            or new_settings.recording_mode != old.recording_mode
+        ):
+            self._on_hotkey_changed(new_settings)
 
     def _open_history(self, icon: object, item: object) -> None:
         threading.Thread(target=self._show_history_window, daemon=True).start()

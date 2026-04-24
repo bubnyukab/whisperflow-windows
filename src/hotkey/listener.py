@@ -93,6 +93,13 @@ class HotkeyListener:
         self._hk = None
         log.debug("HotkeyListener stopped")
 
+    def update(self, hotkey: str, mode: str) -> None:
+        """Swap hotkey/mode and restart — called when the user saves new settings."""
+        self.stop()
+        self._hotkey = hotkey
+        self._mode = mode
+        self.start()
+
     # ------------------------------------------------------------------
     # pynput raw event handlers
     # ------------------------------------------------------------------

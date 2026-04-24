@@ -236,15 +236,9 @@ def main() -> None:
     from src.audio.realtime_recorder import RealtimeRecorder
     from src.hotkey.listener import HotkeyListener
 
-    tray = TrayApp(settings)
-    injector = TextInjector()
-
-    on_transcript_cb = _build_on_transcript(settings, tray, injector, _HISTORY_PATH)
-    recorder = RealtimeRecorder(settings, on_transcript=on_transcript_cb)
-
-    # 5. Initialize AudioToTextRecorder in background (loads Whisper model once).
-    #    is_ready becomes True when done; hotkey callbacks guard against early presses.
-    _start_recorder_init(recorder)
+    # Closures below reference tray/recorder/hotkey by name; they are all assigned
+    # before any callback fires, so forward references are safe.
+    hotkey: HotkeyListener  # declared so nonlocal works inside _on_hotkey_changed
 
     def _on_press() -> None:
         if not recorder.is_ready:
@@ -259,6 +253,16 @@ def main() -> None:
         tray.set_state("processing")
         recorder.stop()
 
+    def _on_hotkey_changed(new_settings: Settings) -> None:
+        nonlocal hotkey
+        hotkey.update(new_settings.hotkey, new_settings.recording_mode)
+        log.debug("Hotkey updated to %s (%s)", new_settings.hotkey, new_settings.recording_mode)
+
+    tray = TrayApp(settings, on_hotkey_changed=_on_hotkey_changed)
+    injector = TextInjector()
+    on_transcript_cb = _build_on_transcript(settings, tray, injector, _HISTORY_PATH)
+    recorder = RealtimeRecorder(settings, on_transcript=on_transcript_cb)
+
     hotkey = HotkeyListener(
         hotkey=settings.hotkey,
         on_press=_on_press,
@@ -266,6 +270,9 @@ def main() -> None:
         mode=settings.recording_mode,
     )
     hotkey.start()
+
+    # 5. Initialize AudioToTextRecorder in background (loads Whisper model once).
+    _start_recorder_init(recorder)
 
     # Notify about Ollama after tray renders (small delay)
     if ollama_down:
