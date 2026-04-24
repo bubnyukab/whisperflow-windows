@@ -13,17 +13,71 @@ from src.config.settings import Settings
 log = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are a transcription editor. Fix grammar, punctuation, and formatting of the "
-    "spoken text below. Preserve the speaker's meaning exactly. "
-    "Output only the corrected text, nothing else."
+    "You are a voice transcription formatter. The user dictated text using "
+    "speech-to-text. Your job:\n"
+    "1. Remove filler words (um, uh, like, you know)\n"
+    "2. Fix grammar, punctuation, capitalisation\n"
+    "3. Infer the user's actual intent — e.g. 'send email to sarah about meeting' "
+    "becomes 'Send an email to Sarah about the meeting.'\n"
+    "4. Preserve tone (casual stays casual, formal stays formal)\n"
+    "5. Format as a list if it sounds like one\n"
+    "Return ONLY the formatted text. No explanation, no preamble, no quotes."
 )
 
-_TIMEOUT = httpx.Timeout(10.0, connect=3.0)
+
+class OllamaFormatter:
+    """Formats voice transcripts via a local Ollama instance."""
+
+    def __init__(self, url: str, model: str, timeout: float = 15.0) -> None:
+        self._url = url.rstrip("/")
+        self._model = model
+        self._timeout = timeout
+
+    def format(self, raw_transcript: str, context_hint: str = "") -> str:
+        """Send transcript to Ollama and return cleaned text.
+
+        Falls back to raw_transcript on any error — never raises.
+        """
+        system = _SYSTEM_PROMPT
+        if context_hint:
+            system = f"{system}\n\nContext: {context_hint}"
+        payload = {
+            "model": self._model,
+            "system": system,
+            "prompt": raw_transcript,
+            "stream": False,
+        }
+        try:
+            resp = httpx.post(
+                f"{self._url}/api/generate",
+                json=payload,
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response", "").strip() or raw_transcript
+        except Exception:
+            log.exception("OllamaFormatter.format failed")
+            return raw_transcript
+
+    def is_available(self) -> bool:
+        """Return True if the Ollama server responds at /api/tags."""
+        try:
+            resp = httpx.get(f"{self._url}/api/tags", timeout=2.0)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers (kept for backward-compat with existing call sites)
+# ---------------------------------------------------------------------------
+
+_LEGACY_TIMEOUT = httpx.Timeout(10.0, connect=3.0)
 
 
 @dataclass
 class OllamaFormatterResult:
-    """Output from the Ollama formatter."""
+    """Output from the module-level format_text helper."""
 
     text: str
     latency_ms: float
@@ -32,15 +86,7 @@ class OllamaFormatterResult:
 
 
 def format_text(raw: str, settings: Settings) -> OllamaFormatterResult:
-    """Send raw transcript to the local Ollama API and return the formatted result.
-
-    Falls back gracefully — callers should check result.success and fall back to
-    the fast_formatter result when False.
-
-    Args:
-        raw: Raw or fast-formatted transcript.
-        settings: App settings (ollama_base_url, ollama_model).
-    """
+    """Thin wrapper around OllamaFormatter for call sites that use Settings."""
     t0 = time.perf_counter()
     url = f"{settings.ollama_url}/api/generate"
     payload = {
@@ -49,7 +95,7 @@ def format_text(raw: str, settings: Settings) -> OllamaFormatterResult:
         "stream": False,
     }
     try:
-        with httpx.Client(timeout=_TIMEOUT) as client:
+        with httpx.Client(timeout=_LEGACY_TIMEOUT) as client:
             resp = client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()

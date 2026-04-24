@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from src.config.settings import Settings
 from src.formatting.fast_formatter import FastFormatter, FastFormatterResult, format_text, word_count
+from src.formatting.ollama_formatter import OllamaFormatter
 
 
 class TestFastFormatter:
@@ -106,6 +107,91 @@ class TestFastFormatterClass:
         t0 = _time.perf_counter()
         ff.format("um so basically this is a test you know right")
         assert (_time.perf_counter() - t0) * 1000 < 5.0
+
+
+class TestOllamaFormatterClass:
+    """Tests for the OllamaFormatter class (mocked httpx.post)."""
+
+    def _ok_response(self, text: str) -> MagicMock:
+        resp = MagicMock()
+        resp.json.return_value = {"response": text, "done": True}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_happy_path_returns_formatted_text(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", return_value=self._ok_response("Send an email to John.")):
+            assert fmt.format("send email to john") == "Send an email to John."
+
+    def test_timeout_returns_raw_transcript(self) -> None:
+        import httpx as _httpx
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", side_effect=_httpx.TimeoutException("timeout")):
+            assert fmt.format("send email to john") == "send email to john"
+
+    def test_connection_error_returns_raw_transcript(self) -> None:
+        import httpx as _httpx
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", side_effect=_httpx.ConnectError("refused")):
+            assert fmt.format("send email to john") == "send email to john"
+
+    def test_unexpected_exception_returns_raw_transcript(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", side_effect=RuntimeError("oops")):
+            assert fmt.format("raw text") == "raw text"
+
+    def test_context_hint_appended_to_system_prompt(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
+            fmt.format("some text", context_hint="composing an email")
+        body = mock_post.call_args.kwargs["json"]
+        assert "composing an email" in body["system"]
+
+    def test_no_context_hint_system_prompt_unchanged(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
+            fmt.format("some text")
+        body = mock_post.call_args.kwargs["json"]
+        assert "Context:" not in body["system"]
+
+    def test_posts_to_api_generate_endpoint(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
+            fmt.format("test")
+        assert mock_post.call_args.args[0] == "http://localhost:11434/api/generate"
+
+    def test_stream_is_false_in_payload(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
+            fmt.format("test")
+        assert mock_post.call_args.kwargs["json"]["stream"] is False
+
+    def test_configured_timeout_passed_to_httpx(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b", timeout=5.0)
+        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
+            fmt.format("test")
+        assert mock_post.call_args.kwargs["timeout"] == 5.0
+
+    def test_strips_whitespace_from_response(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", return_value=self._ok_response("  Formatted.  \n")):
+            assert fmt.format("raw") == "Formatted."
+
+    def test_is_available_true_on_200(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.get", return_value=MagicMock(status_code=200)):
+            assert fmt.is_available() is True
+
+    def test_is_available_false_on_connect_error(self) -> None:
+        import httpx as _httpx
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.get", side_effect=_httpx.ConnectError("refused")):
+            assert fmt.is_available() is False
+
+    def test_is_available_false_on_non_200(self) -> None:
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.get", return_value=MagicMock(status_code=503)):
+            assert fmt.is_available() is False
 
 
 class TestOllamaFormatter:
