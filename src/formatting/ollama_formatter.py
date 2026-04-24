@@ -42,7 +42,7 @@ def format_text(raw: str, settings: Settings) -> OllamaFormatterResult:
         settings: App settings (ollama_base_url, ollama_model).
     """
     t0 = time.perf_counter()
-    url = f"{settings.ollama_base_url}/api/generate"
+    url = f"{settings.ollama_url}/api/generate"
     payload = {
         "model": settings.ollama_model,
         "prompt": f"{_SYSTEM_PROMPT}\n\n{raw}",

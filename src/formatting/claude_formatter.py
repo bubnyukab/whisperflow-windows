@@ -38,7 +38,7 @@ def format_text(raw: str, settings: Settings) -> ClaudeFormatterResult:
         settings: App settings (provides get_anthropic_api_key()).
     """
     t0 = time.perf_counter()
-    api_key = settings.get_anthropic_api_key()
+    api_key = settings.anthropic_api_key
     if not api_key:
         elapsed = (time.perf_counter() - t0) * 1000
         log.warning("Claude formatter called but ANTHROPIC_API_KEY is not set")
