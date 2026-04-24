@@ -1,67 +1,108 @@
-"""Clipboard-based text injector for Windows."""
+"""Clipboard-based text injector for WhisperFlow."""
 
 from __future__ import annotations
 
 import logging
-import threading
-from dataclasses import dataclass
-from typing import Optional
+import time
 
+import keyboard
 import pyperclip
-
-from src.config.settings import Settings
 
 log = logging.getLogger(__name__)
 
-
-@dataclass
-class InjectionResult:
-    """Result of a text injection attempt."""
-
-    success: bool
-    text: str
-    error: Optional[str] = None
+_TOAST_TIMEOUT_MS = 15_000
+_TOAST_WIDTH = 420
+_TOAST_HEIGHT = 180
 
 
-def inject(text: str, settings: Settings) -> InjectionResult:
-    """Inject text into the focused application via clipboard paste.
+class TextInjector:
+    """Injects text into the focused application via clipboard paste."""
 
-    Saves the existing clipboard content, sets the new text, simulates Ctrl+V,
-    then restores the previous clipboard after inject_delay_ms.
+    def inject(self, text: str) -> bool:
+        """Copy text to clipboard, send Ctrl+V, then restore old clipboard.
 
-    Args:
-        text: The text to inject.
-        settings: App settings (inject_delay_ms).
-    """
-    try:
-        previous = _safe_get_clipboard()
-        pyperclip.copy(text)
-        _simulate_paste()
-        delay_s = settings.inject_delay_ms / 1000.0
-        threading.Timer(delay_s, lambda: _safe_set_clipboard(previous)).start()
-        return InjectionResult(success=True, text=text)
-    except Exception as exc:
-        log.exception("Text injection failed")
-        return InjectionResult(success=False, text=text, error=str(exc))
+        Returns True on success, False on any error.
+        """
+        try:
+            # 1. Save old clipboard (may be non-text)
+            old_clipboard: str | None = None
+            try:
+                old_clipboard = pyperclip.paste()
+            except Exception:
+                pass  # non-text clipboard — skip restore
 
+            # 2. Set new text
+            pyperclip.copy(text)
 
-def _safe_get_clipboard() -> str:
-    """Return current clipboard text, or empty string if clipboard holds non-text."""
-    try:
-        return pyperclip.paste() or ""
-    except Exception:
-        return ""
+            # 3. Brief settle before paste
+            time.sleep(0.05)
 
+            # 4. Simulate paste
+            keyboard.send("ctrl+v")
 
-def _safe_set_clipboard(text: str) -> None:
-    """Restore clipboard to a previous value, ignoring errors."""
-    try:
-        pyperclip.copy(text)
-    except Exception:
-        pass
+            # 5. Wait for application to consume paste before restoring
+            time.sleep(0.5)
 
+            # 6. Restore if old clipboard was text
+            if old_clipboard is not None:
+                try:
+                    pyperclip.copy(old_clipboard)
+                except Exception:
+                    pass
 
-def _simulate_paste() -> None:
-    """Send Ctrl+V to the focused window."""
-    import keyboard
-    keyboard.send("ctrl+v")
+            return True
+        except Exception:
+            log.exception("TextInjector.inject failed")
+            return False
+
+    def show_fallback_toast(self, text: str) -> None:
+        """Show a borderless always-on-top window with the transcript and a Copy button.
+
+        Auto-closes after 15 seconds. Never raises — failure is silently logged.
+        """
+        try:
+            import tkinter as tk
+
+            root = tk.Tk()
+            root.withdraw()
+
+            sw = root.winfo_screenwidth()
+            sh = root.winfo_screenheight()
+
+            top = tk.Toplevel(root)
+            top.overrideredirect(True)
+            top.wm_attributes("-topmost", True)
+
+            pad = 16
+            x = sw - _TOAST_WIDTH - pad
+            y = sh - _TOAST_HEIGHT - pad
+            top.geometry(f"{_TOAST_WIDTH}x{_TOAST_HEIGHT}+{x}+{y}")
+
+            # Scrollable text area
+            frame = tk.Frame(top, bd=1, relief="solid")
+            frame.pack(fill="both", expand=True, padx=8, pady=(8, 4))
+
+            scrollbar = tk.Scrollbar(frame)
+            scrollbar.pack(side="right", fill="y")
+
+            txt = tk.Text(frame, wrap="word", yscrollcommand=scrollbar.set,
+                          height=4, font=("Segoe UI", 10))
+            txt.insert("1.0", text)
+            txt.config(state="disabled")
+            txt.pack(side="left", fill="both", expand=True)
+            scrollbar.config(command=txt.yview)
+
+            # Copy button
+            def _copy() -> None:
+                pyperclip.copy(text)
+
+            btn = tk.Button(top, text="Copy", command=_copy,
+                            font=("Segoe UI", 9), padx=12)
+            btn.pack(pady=(0, 8))
+
+            # Auto-close after 15 s
+            root.after(_TOAST_TIMEOUT_MS, root.destroy)
+
+            root.mainloop()
+        except Exception:
+            log.exception("TextInjector.show_fallback_toast failed")
