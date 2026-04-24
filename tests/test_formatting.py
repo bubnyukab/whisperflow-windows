@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from src.config.settings import Settings
+from src.formatting import create_formatter
+from src.formatting import format_text as router_format_text
 from src.formatting.claude_formatter import ClaudeFormatter
 from src.formatting.fast_formatter import FastFormatter, FastFormatterResult, format_text, word_count
 from src.formatting.ollama_formatter import OllamaFormatter
@@ -324,3 +326,120 @@ class TestOllamaFormatter:
 
         assert result.success is False
         assert result.text == "hello world"
+
+
+class TestCreateFormatter:
+    """Tests for the create_formatter router function."""
+
+    def test_fast_backend_returns_fast_formatter(self) -> None:
+        settings = Settings(formatter_backend="fast")
+        assert isinstance(create_formatter(settings), FastFormatter)
+
+    def test_ollama_backend_returns_ollama_formatter(self) -> None:
+        settings = Settings(formatter_backend="ollama")
+        fmt = create_formatter(settings)
+        assert isinstance(fmt, OllamaFormatter)
+
+    def test_claude_backend_returns_claude_formatter(self) -> None:
+        settings = Settings(formatter_backend="claude", anthropic_api_key="sk-test")
+        fmt = create_formatter(settings)
+        assert isinstance(fmt, ClaudeFormatter)
+
+    def test_ollama_formatter_uses_settings_url(self) -> None:
+        settings = Settings(formatter_backend="ollama", ollama_url="http://myhost:11434")
+        fmt = create_formatter(settings)
+        assert fmt._url == "http://myhost:11434"
+
+    def test_ollama_formatter_uses_settings_model(self) -> None:
+        settings = Settings(formatter_backend="ollama", ollama_model="phi3:mini")
+        fmt = create_formatter(settings)
+        assert fmt._model == "phi3:mini"
+
+    def test_ollama_formatter_uses_settings_timeout(self) -> None:
+        settings = Settings(formatter_backend="ollama", ollama_timeout=5.0)
+        fmt = create_formatter(settings)
+        assert fmt._timeout == 5.0
+
+    def test_claude_formatter_uses_api_key(self) -> None:
+        settings = Settings(formatter_backend="claude", anthropic_api_key="sk-mykey")
+        fmt = create_formatter(settings)
+        assert fmt._api_key == "sk-mykey"
+
+
+class TestRouterFormatText:
+    """Tests for the two-tier format_text router."""
+
+    def _short_text(self, threshold: int = 10) -> str:
+        return " ".join(["word"] * (threshold - 1))
+
+    def _long_text(self, threshold: int = 10) -> str:
+        return " ".join(["word"] * threshold)
+
+    def test_short_input_returns_fast_result(self) -> None:
+        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        result = router_format_text(self._short_text(), settings)
+        assert isinstance(result, str)
+        assert result != ""
+
+    def test_short_input_never_calls_llm(self) -> None:
+        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        with patch("src.formatting.OllamaFormatter") as mock_cls:
+            router_format_text(self._short_text(), settings)
+        mock_cls.return_value.format.assert_not_called()
+
+    def test_fast_backend_never_calls_llm_regardless_of_length(self) -> None:
+        settings = Settings(formatter_backend="fast", llm_word_threshold=10)
+        with patch("src.formatting.OllamaFormatter") as mock_cls:
+            router_format_text(self._long_text(), settings)
+        mock_cls.return_value.format.assert_not_called()
+
+    def test_long_input_ollama_backend_calls_llm(self) -> None:
+        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        mock_fmt = MagicMock()
+        mock_fmt.format.return_value = "LLM result."
+        with patch("src.formatting.create_formatter", return_value=mock_fmt):
+            result = router_format_text(self._long_text(), settings)
+        mock_fmt.format.assert_called_once()
+        assert result == "LLM result."
+
+    def test_long_input_claude_backend_calls_llm(self) -> None:
+        settings = Settings(formatter_backend="claude", anthropic_api_key="sk-test", llm_word_threshold=10)
+        mock_fmt = MagicMock()
+        mock_fmt.format.return_value = "Claude result."
+        with patch("src.formatting.create_formatter", return_value=mock_fmt):
+            result = router_format_text(self._long_text(), settings)
+        mock_fmt.format.assert_called_once()
+        assert result == "Claude result."
+
+    def test_llm_empty_response_falls_back_to_fast(self) -> None:
+        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        mock_fmt = MagicMock()
+        mock_fmt.format.return_value = ""
+        with patch("src.formatting.create_formatter", return_value=mock_fmt):
+            result = router_format_text(self._long_text(), settings)
+        assert result != ""
+
+    def test_context_hint_passed_to_llm(self) -> None:
+        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        mock_fmt = MagicMock()
+        mock_fmt.format.return_value = "ok"
+        with patch("src.formatting.create_formatter", return_value=mock_fmt):
+            router_format_text(self._long_text(), settings, context_hint="email")
+        mock_fmt.format.assert_called_once_with(self._long_text(), "email")
+
+    def test_exact_threshold_triggers_llm(self) -> None:
+        settings = Settings(formatter_backend="ollama", llm_word_threshold=5)
+        text = " ".join(["word"] * 5)
+        mock_fmt = MagicMock()
+        mock_fmt.format.return_value = "ok"
+        with patch("src.formatting.create_formatter", return_value=mock_fmt):
+            router_format_text(text, settings)
+        mock_fmt.format.assert_called_once()
+
+    def test_one_below_threshold_skips_llm(self) -> None:
+        settings = Settings(formatter_backend="ollama", llm_word_threshold=5)
+        text = " ".join(["word"] * 4)
+        mock_fmt = MagicMock()
+        with patch("src.formatting.create_formatter", return_value=mock_fmt):
+            router_format_text(text, settings)
+        mock_fmt.format.assert_not_called()
