@@ -1,4 +1,4 @@
-"""RealtimeSTT-backed continuous recorder for WhisperFlow."""
+"""RealtimeSTT-backed recorder for WhisperFlow — hold-to-talk mode."""
 
 from __future__ import annotations
 
@@ -17,31 +17,42 @@ except ImportError:  # pragma: no cover
 
 
 class RealtimeRecorder:
-    """Continuous VAD-based recorder using RealtimeSTT + faster-whisper.
+    """Hold-to-talk wrapper around AudioToTextRecorder.
 
-    The recorder loops in a daemon thread, calling AudioToTextRecorder.text(callback)
-    which blocks until an utterance is complete, then invokes on_transcript.
+    Correct lifecycle:
+        recorder = RealtimeRecorder(settings, on_transcript)
+        recorder.initialize()   # once at startup, in a background thread
+        recorder.start()        # hotkey pressed  → begin capturing audio
+        recorder.stop()         # hotkey released → transcribe, fire on_transcript
+        recorder.shutdown()     # app exit only   → destroy subprocess
     """
 
     def __init__(self, settings: Settings, on_transcript: Callable[[str], None]) -> None:
         self._settings = settings
         self._on_transcript = on_transcript
         self._recorder: Optional[object] = None
-        self._running = False
         self._ready = False
+        self._lock = threading.Lock()
 
     @property
     def is_ready(self) -> bool:
-        """True after successful initialisation, False before start() or after stop()."""
         return self._ready
 
-    def start(self) -> None:
-        """Initialise AudioToTextRecorder and start the background loop thread."""
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def initialize(self) -> None:
+        """Create AudioToTextRecorder — call once, in a background thread at startup.
+
+        This is the expensive step (~15-20 s on first run while the model downloads;
+        ~1-2 s on subsequent runs once cached).  is_ready becomes True when done.
+        """
         if AudioToTextRecorder is None:  # pragma: no cover
-            log.error("RealtimeSTT is not installed; cannot start recording")
+            log.error("RealtimeSTT is not installed; recording unavailable")
             return
         try:
-            self._recorder = AudioToTextRecorder(
+            recorder = AudioToTextRecorder(
                 model=self._settings.whisper_model,
                 language=self._settings.language,
                 post_speech_silence_duration=self._settings.vad_silence_ms / 1000,
@@ -49,31 +60,61 @@ class RealtimeRecorder:
                 spinner=False,
                 level=logging.WARNING,
             )
-            self._ready = True
-            self._running = True
-            t = threading.Thread(target=self._loop, daemon=True)
-            t.start()
-            log.debug("RealtimeRecorder started (model=%s)", self._settings.whisper_model)
+            with self._lock:
+                self._recorder = recorder
+                self._ready = True
+            log.debug("RealtimeRecorder ready (model=%s)", self._settings.whisper_model)
         except Exception:
-            log.exception("RealtimeRecorder.start failed")
+            log.exception("RealtimeRecorder.initialize failed")
 
-    def _loop(self) -> None:
-        while self._running:
-            try:
-                self._recorder.text(self._on_transcript)  # type: ignore[union-attr]
-            except Exception:
-                if self._running:
-                    log.exception("RealtimeRecorder loop error")
-                break
-
-    def stop(self) -> None:
-        """Stop the recorder loop and release resources."""
-        self._running = False
-        self._ready = False
-        recorder = self._recorder
-        self._recorder = None
+    def shutdown(self) -> None:
+        """Destroy the recorder subprocess — call only on app exit."""
+        with self._lock:
+            recorder = self._recorder
+            self._recorder = None
+            self._ready = False
         if recorder is not None:
             try:
                 recorder.shutdown()  # type: ignore[union-attr]
             except Exception:
-                log.exception("RealtimeRecorder.stop shutdown failed")
+                log.exception("RealtimeRecorder.shutdown failed")
+
+    # ------------------------------------------------------------------
+    # Per-recording controls (called on every hotkey press/release)
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Begin audio capture (hotkey pressed)."""
+        with self._lock:
+            recorder = self._recorder
+        if recorder is not None:
+            try:
+                recorder.start()  # type: ignore[union-attr]
+                log.debug("RealtimeRecorder: capture started")
+            except Exception:
+                log.exception("RealtimeRecorder.start failed")
+
+    def stop(self) -> None:
+        """End audio capture and transcribe in background (hotkey released)."""
+        with self._lock:
+            recorder = self._recorder
+        if recorder is None:
+            return
+        try:
+            recorder.stop()  # type: ignore[union-attr]
+            threading.Thread(target=self._transcribe, args=(recorder,), daemon=True).start()
+        except Exception:
+            log.exception("RealtimeRecorder.stop failed")
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _transcribe(self, recorder: object) -> None:
+        """Block on recorder.text(), then fire on_transcript with the result."""
+        try:
+            text = recorder.text()  # type: ignore[union-attr]
+            if text and text.strip():
+                self._on_transcript(text.strip())
+        except Exception:
+            log.exception("RealtimeRecorder._transcribe failed")

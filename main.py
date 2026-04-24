@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:  # pragma: no cover
     from src.tray.tray_app import TrayApp
     from src.injection.text_injector import TextInjector
+    from src.audio.realtime_recorder import RealtimeRecorder
 
 from src.config.settings import Settings, check_ollama, load_settings, SETTINGS_PATH
 from src.formatting import format_text
@@ -130,18 +131,9 @@ def _build_on_transcript(
 # Whisper pre-warm
 # ---------------------------------------------------------------------------
 
-def _prewarm_whisper(model: str) -> None:
-    """Load the Whisper model weights in the background so first use is instant."""
-    def _warm() -> None:
-        try:
-            from faster_whisper import WhisperModel
-            WhisperModel(model, compute_type="auto")
-            log.debug("Whisper model '%s' pre-warmed", model)
-        except ImportError:
-            log.debug("faster-whisper not installed — Whisper pre-warm skipped")
-        except Exception:
-            log.exception("Whisper pre-warm failed")
-    threading.Thread(target=_warm, daemon=True).start()
+def _start_recorder_init(recorder: "RealtimeRecorder") -> None:
+    """Initialize the AudioToTextRecorder in the background so startup is non-blocking."""
+    threading.Thread(target=recorder.initialize, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -238,10 +230,7 @@ def main() -> None:
         log.warning("Ollama unreachable at %s — will fall back to fast formatter",
                     settings.ollama_url)
 
-    # 4. Pre-warm Whisper
-    _prewarm_whisper(settings.whisper_model)
-
-    # 5–7. Wire components
+    # 4. Wire components
     from src.tray.tray_app import TrayApp
     from src.injection.text_injector import TextInjector
     from src.audio.realtime_recorder import RealtimeRecorder
@@ -253,11 +242,21 @@ def main() -> None:
     on_transcript_cb = _build_on_transcript(settings, tray, injector, _HISTORY_PATH)
     recorder = RealtimeRecorder(settings, on_transcript=on_transcript_cb)
 
+    # 5. Initialize AudioToTextRecorder in background (loads Whisper model once).
+    #    is_ready becomes True when done; hotkey callbacks guard against early presses.
+    _start_recorder_init(recorder)
+
     def _on_press() -> None:
+        if not recorder.is_ready:
+            tray.show_notification("WhisperFlow", "Still loading — please wait a moment.")
+            return
         tray.set_state("recording")
         recorder.start()
 
     def _on_release() -> None:
+        if not recorder.is_ready:
+            return
+        tray.set_state("processing")
         recorder.stop()
 
     hotkey = HotkeyListener(
