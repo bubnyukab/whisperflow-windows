@@ -3,70 +3,112 @@
 from __future__ import annotations
 
 import logging
-import threading
-from typing import Callable, Optional
+import time
+from typing import Callable
 
-from src.config.settings import Settings
+import keyboard
 
 log = logging.getLogger(__name__)
 
+_DEBOUNCE_S = 0.15
+
 
 class HotkeyListener:
-    """Listens for a configurable global hotkey and fires press/release callbacks.
+    """Listens for a global hotkey and fires press/release callbacks.
 
-    Uses the keyboard library for Windows-compatible global hotkey detection.
-    The press callback is guarded against repeated fires while the key is held.
+    HOLD mode:   on_press fires on keydown, on_release fires on keyup.
+    TOGGLE mode: on_press fires on 1st keydown, on_release fires on 2nd keydown.
+
+    Debounce: re-fires within 150 ms of the previous event are dropped.
+    All callback exceptions are caught and logged — the listener never crashes.
     """
 
     def __init__(
         self,
-        settings: Settings,
+        hotkey: str,
         on_press: Callable[[], None],
         on_release: Callable[[], None],
+        mode: str = "hold",
     ) -> None:
-        """Initialize the listener.
-
-        Args:
-            settings: App settings (hotkey string, e.g. 'win+shift+space').
-            on_press: Called once when the hotkey combination is first pressed.
-            on_release: Called when the trigger key is released.
-        """
-        self._settings = settings
+        self._hotkey = hotkey
         self._on_press = on_press
         self._on_release = on_release
-        self._active = False
+        self._mode = mode
+        self._listening = False
+        self._handles: list[object] = []
+        self._last_press = 0.0
+        self._last_release = 0.0
+        self._toggled = False
+
+    @property
+    def is_listening(self) -> bool:
+        return self._listening
 
     def start(self) -> None:
-        """Register global hotkey hooks."""
-        import keyboard
-
-        hotkey = self._settings.hotkey
-        trigger_key = hotkey.split("+")[-1]
-        try:
-            keyboard.add_hotkey(hotkey, self._handle_press, suppress=False)
-            keyboard.on_release_key(trigger_key, self._handle_release, suppress=False)
-            log.info("Hotkey registered: %s", hotkey)
-        except Exception:
-            log.exception("Failed to register hotkey: %s", hotkey)
+        """Register hotkeys — non-blocking; keyboard library runs its own thread."""
+        if self._listening:
+            return
+        if self._mode == "toggle":
+            h = keyboard.add_hotkey(self._hotkey, self._handle_toggle)
+            self._handles = [h]
+        else:  # hold
+            h_down = keyboard.add_hotkey(self._hotkey, self._handle_press)
+            h_up = keyboard.add_hotkey(
+                self._hotkey, self._handle_release, trigger_on_release=True
+            )
+            self._handles = [h_down, h_up]
+        self._listening = True
+        log.debug("HotkeyListener started: %s (%s)", self._hotkey, self._mode)
 
     def stop(self) -> None:
         """Unregister all hotkey hooks."""
-        try:
-            import keyboard
-            keyboard.unhook_all()
-        except Exception:
-            log.exception("Failed to unhook keyboard hooks")
+        self._listening = False
+        for h in self._handles:
+            try:
+                keyboard.remove_hotkey(h)
+            except Exception:
+                log.exception("HotkeyListener.stop failed to remove hotkey")
+        self._handles = []
+        log.debug("HotkeyListener stopped")
+
+    # ------------------------------------------------------------------
+    # Internal handlers
+    # ------------------------------------------------------------------
 
     def _handle_press(self) -> None:
-        """Guard against repeated fires while the key is held."""
-        if not self._active:
-            self._active = True
-            log.debug("Hotkey pressed")
-            threading.Thread(target=self._on_press, daemon=True).start()
+        now = time.time()
+        if now - self._last_press < _DEBOUNCE_S:
+            return
+        self._last_press = now
+        try:
+            self._on_press()
+        except Exception:
+            log.exception("HotkeyListener on_press callback raised")
 
-    def _handle_release(self, _event: object) -> None:
-        """Fire the release callback once per press."""
-        if self._active:
-            self._active = False
-            log.debug("Hotkey released")
-            threading.Thread(target=self._on_release, daemon=True).start()
+    def _handle_release(self) -> None:
+        now = time.time()
+        if now - self._last_release < _DEBOUNCE_S:
+            return
+        self._last_release = now
+        try:
+            self._on_release()
+        except Exception:
+            log.exception("HotkeyListener on_release callback raised")
+
+    def _handle_toggle(self) -> None:
+        now = time.time()
+        if now - self._last_press < _DEBOUNCE_S:
+            return
+        self._last_press = now
+        if not self._toggled:
+            self._toggled = True
+            try:
+                self._on_press()
+            except Exception:
+                log.exception("HotkeyListener on_press callback raised (toggle)")
+        else:
+            self._toggled = False
+            try:
+                self._on_release()
+            except Exception:
+                log.exception("HotkeyListener on_release callback raised (toggle)")
