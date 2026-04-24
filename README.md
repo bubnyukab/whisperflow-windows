@@ -2,72 +2,144 @@
 
 > Local, privacy-first Wispr Flow clone for Windows — 100% free, fully offline, no accounts required.
 
-Hold a hotkey → speak → formatted text appears in your focused app.
+Hold a hotkey → speak → formatted text appears in your currently focused app.
 
-## Features
+---
 
-- **100% free by default** — Ollama + Whisper, zero accounts, zero API keys
-- **Privacy first** — audio never leaves your machine
-- **Low latency** — <700ms end-to-end on GPU, <1.5s on CPU
-- **Two-tier formatting** — instant path for short inputs, LLM for longer text
+## Quick Start
 
-## Requirements
+1. **Install Ollama** — download from [ollama.com](https://ollama.com) and run the installer
+2. **Pull a model** — open a terminal and run:
+   ```
+   ollama pull llama3.1:8b
+   ```
+3. **Run WhisperFlow** — double-click `WhisperFlow.exe`
 
-- Windows 10/11
-- Python 3.11+
-- NVIDIA GPU recommended (CPU works, slower)
-- [Ollama](https://ollama.com) (optional — for LLM formatting)
+A setup wizard appears on first launch to confirm your Ollama model and hotkey.
 
-## Setup
+---
 
-```bash
-pip install -r requirements.txt
+## Hardware & Latency
 
-# Pre-warm the Whisper model (~75 MB download on first run)
-python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en')"
-```
+WhisperFlow achieves Wispr Flow–level latency locally on any NVIDIA GPU.
 
-### Optional: LLM Formatting with Ollama
+| Hardware | Whisper (`tiny.en`) | Formatter (Ollama) | Total |
+|---|---|---|---|
+| CPU only | ~400 ms | ~2 s (skipped for short inputs) | **~700 ms–1.5 s** ✅ |
+| Any NVIDIA GPU | ~50 ms | ~350 ms | **~400–500 ms** ✅ |
+| RTX 3080+ | ~50 ms | ~250 ms | **~300 ms** ✅ |
 
-```bash
-# Install Ollama from https://ollama.com, then:
-ollama pull llama3.1:8b
-ollama serve
-```
+> **Two-tier formatter:** inputs shorter than 10 words skip the LLM entirely (<5 ms). This covers ~80% of real dictation use cases and keeps CPU-only machines responsive.
 
-### Optional: Claude API Formatting
+---
 
-Copy `.env.example` to `.env` and set your `ANTHROPIC_API_KEY`.
+## Whisper Model Options
 
-## Usage
+| Model | Size | RAM | CPU latency | GPU latency |
+|---|---|---|---|---|
+| `tiny.en` *(default)* | 75 MB | 1 GB | ~400 ms | ~50 ms |
+| `base.en` | 150 MB | 1 GB | ~700 ms | ~100 ms |
+| `medium.en` | 1.5 GB | 5 GB | ~3 s | ~300 ms |
+| `large-v3` | 3 GB | 10 GB | ~8 s | ~600 ms |
 
-```bash
-python main.py
-```
+Change the model in **Settings → Advanced**.
 
-A tray icon appears. Press the hotkey (default `Win+Shift+Space`), speak, release —
-the transcribed and formatted text is injected into your current app.
+---
 
-Right-click the tray icon to open Settings or quit.
+## Ollama Model Options
 
-## Configuration
+| Model | Size | RAM | CPU latency | GPU latency | Quality |
+|---|---|---|---|---|---|
+| `phi3:mini` | 2.3 GB | 4 GB | ~800 ms | ~150 ms | Good |
+| `mistral:7b` | 4.1 GB | 8 GB | ~1.5 s | ~250 ms | Very good |
+| `llama3.1:8b` *(default)* | 4.7 GB | 8 GB | ~2 s | ~350 ms | Excellent |
+| `gemma2:9b` | 5.5 GB | 10 GB | ~2.5 s | ~400 ms | Best |
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `WHISPER_MODEL` | `tiny.en` | Whisper model size |
-| `HOTKEY` | `win+shift+space` | Global recording hotkey |
-| `FORMATTER_BACKEND` | `ollama` | `fast` / `ollama` / `claude` |
-| `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name |
+For CPU-only machines, `phi3:mini` gives the best speed/quality tradeoff.
 
-All settings are editable via the tray icon → Settings.
+---
+
+## Hotkey Usage
+
+| Mode | How it works |
+|---|---|
+| **Hold** *(default)* | Press and hold hotkey while speaking; release to transcribe |
+| **Toggle** | Press once to start recording; press again to stop |
+
+Default hotkey: `Win+Shift+Space`
+
+Change in **Settings → General**.
+
+---
+
+## Privacy
+
+- **Audio never leaves your machine.** Recording, VAD, and Whisper transcription run entirely locally.
+- **Transcript stays local by default.** The Ollama formatter runs locally with no network calls.
+- **The only exception:** if you enable the Claude API formatter in Settings, the transcript text (not audio) is sent to Anthropic's API. Audio is never sent.
+
+---
+
+## Optional: Claude API Formatter
+
+For the highest formatting quality, WhisperFlow supports Anthropic's Claude API.
+
+1. Copy `.env.example` to `.env`
+2. Add your key: `ANTHROPIC_API_KEY=sk-ant-...`
+3. In Settings → Formatter, select **Claude API (paid)**
+
+Only the transcript text is sent — never audio.
+
+---
 
 ## Development
 
 ```bash
-python main.py --dev        # verbose logging
-python -m pytest tests/ -v  # run tests
-python tools/benchmark.py   # latency benchmark
+# Install dependencies
+pip install -r requirements.txt
+
+# Run from source
+python main.py --dev          # verbose logging
+python main.py --model base.en --backend fast
+
+# Tests
+python -m pytest tests/ -v
+
+# Latency benchmark (uses tests/fixtures/sample.wav)
+python tools/benchmark.py --model tiny.en --backend fast --iterations 5
+
+# Build .exe (Windows, requires PyInstaller)
+pyinstaller build/build.spec --clean
 ```
+
+---
+
+## Troubleshooting
+
+**Ollama not detected on startup**
+
+- Make sure Ollama is running: open a terminal and run `ollama serve`
+- Check the URL in Settings → Formatter → "Check connection"
+- WhisperFlow falls back to Fast-only mode automatically if Ollama is unreachable
+
+**Transcription is slow on CPU**
+
+- Switch to `tiny.en` in Settings → Advanced (it's the default and fastest)
+- Enable the two-tier formatter — short inputs skip the LLM entirely
+- Consider `phi3:mini` as the Ollama model for faster formatting
+
+**Hotkey not working / conflicts with another app**
+
+- Change the hotkey in Settings → General
+- Try `ctrl+shift+space` or `alt+shift+space` if the default conflicts
+- Some apps (e.g., games in exclusive mode) block global hotkeys
+
+**Text injected in the wrong place**
+
+- Click once in the target field before pressing the hotkey
+- The injection uses clipboard paste (`Ctrl+V`); ensure the target app accepts it
+
+---
 
 ## License
 
