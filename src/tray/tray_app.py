@@ -12,6 +12,7 @@ import pystray
 from PIL import Image, ImageDraw
 
 from src.config.settings import Settings
+from src.tray.recording_indicator import RecordingIndicator
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class TrayApp:
         # Optional pipeline callbacks — wired by main.py (Prompt 11)
         self._on_hotkey_press: Optional[Callable] = None
         self._on_hotkey_release: Optional[Callable] = None
+        self._indicator = RecordingIndicator()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -77,6 +79,7 @@ class TrayApp:
             title="WhisperFlow",
             menu=menu,
         )
+        self._indicator.start()
         self._tray.run()
 
     def set_state(self, state: str) -> None:
@@ -90,6 +93,8 @@ class TrayApp:
         if self._tray is not None:
             self._tray.icon = make_circle_icon(state)
             self._tray.update_menu()
+
+        self._indicator.set_state(state)
 
         if state == "done":
             timer = threading.Timer(_DONE_RESET_DELAY, lambda: self.set_state("idle"))
