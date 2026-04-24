@@ -111,7 +111,7 @@ class TrayApp:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _status_text(self) -> str:
+    def _status_text(self, item: object = None) -> str:
         """Dynamic status label shown in the tray menu."""
         return f"Status: {_STATE_LABELS.get(self._state, self._state)}"
 
