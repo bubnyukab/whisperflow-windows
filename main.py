@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import multiprocessing
 import threading
 from dataclasses import replace
 from datetime import datetime
@@ -283,4 +284,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()
