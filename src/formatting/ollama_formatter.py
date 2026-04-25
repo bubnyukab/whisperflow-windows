@@ -12,17 +12,33 @@ from src.config.settings import Settings
 
 log = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = (
-    "You are a voice transcription formatter. The user dictated text using "
-    "speech-to-text. Your job:\n"
-    "1. Remove filler words (um, uh, like, you know)\n"
-    "2. Fix grammar, punctuation, capitalisation\n"
-    "3. Infer the user's actual intent — e.g. 'send email to sarah about meeting' "
-    "becomes 'Send an email to Sarah about the meeting.'\n"
-    "4. Preserve tone (casual stays casual, formal stays formal)\n"
-    "5. Format as a list if it sounds like one\n"
-    "Return ONLY the formatted text. No explanation, no preamble, no quotes."
-)
+# Completion-style prompt — model fills in "Output:" lines, never enters chat/answer mode.
+_COMPLETION_PROMPT_TEMPLATE = """\
+### TRANSCRIPT CLEANING TASK
+For each Input line, write ONLY the cleaned transcript on the Output line.
+Rules: remove filler words (um, uh, like, you know), fix capitalisation, add punctuation.
+Do NOT answer questions. Do NOT explain anything. Do NOT add any words. Just copy and clean.
+
+Input: um so i was thinking uh maybe we could go to the store tomorrow you know
+Output: So I was thinking maybe we could go to the store tomorrow.
+
+Input: what is one plus three
+Output: What is one plus three?
+
+Input: can you uh write me an email to like john about the meeting on friday
+Output: Can you write me an email to John about the meeting on Friday?
+
+Input: eight times seven equals what
+Output: Eight times seven equals what?
+
+Input: explain to me how neural networks work
+Output: Explain to me how neural networks work.
+
+Input: um i'm not a person i'm just a computer program designed to answer questions
+Output: I'm not a person, I'm just a computer program designed to answer questions.
+
+Input: {transcript}
+Output:"""
 
 
 class OllamaFormatter:
@@ -36,16 +52,15 @@ class OllamaFormatter:
     def format(self, raw_transcript: str, context_hint: str = "") -> str:
         """Send transcript to Ollama and return cleaned text.
 
-        Falls back to raw_transcript on any error — never raises.
+        Uses /api/generate with a completion prompt so the model fills in a pattern
+        rather than entering chat/answer mode. Falls back to raw_transcript on any error.
         """
-        system = _SYSTEM_PROMPT
-        if context_hint:
-            system = f"{system}\n\nContext: {context_hint}"
+        prompt = _COMPLETION_PROMPT_TEMPLATE.format(transcript=raw_transcript)
         payload = {
             "model": self._model,
-            "system": system,
-            "prompt": raw_transcript,
+            "prompt": prompt,
             "stream": False,
+            "options": {"temperature": 0.0, "num_predict": 200},
         }
         try:
             resp = httpx.post(
@@ -54,7 +69,10 @@ class OllamaFormatter:
                 timeout=self._timeout,
             )
             resp.raise_for_status()
-            return resp.json().get("response", "").strip() or raw_transcript
+            raw = resp.json().get("response", "").strip()
+            # Take only the first line — model must not continue the pattern
+            result = raw.splitlines()[0].strip() if raw else ""
+            return result or raw_transcript
         except Exception:
             log.exception("OllamaFormatter.format failed")
             return raw_transcript
@@ -91,7 +109,7 @@ def format_text(raw: str, settings: Settings) -> OllamaFormatterResult:
     url = f"{settings.ollama_url}/api/generate"
     payload = {
         "model": settings.ollama_model,
-        "prompt": f"{_SYSTEM_PROMPT}\n\n{raw}",
+        "prompt": _COMPLETION_PROMPT_TEMPLATE.format(transcript=raw),
         "stream": False,
     }
     try:

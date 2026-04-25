@@ -47,6 +47,7 @@ def _setup_logging(debug: bool) -> None:
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    logging.getLogger("RealtimeSTT.safepipe").setLevel(logging.WARNING)
 
 
 def _apply_cli_overrides(args: argparse.Namespace, settings: Settings) -> Settings:

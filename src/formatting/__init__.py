@@ -28,13 +28,21 @@ def create_formatter(settings: Settings) -> FastFormatter | OllamaFormatter | Cl
 def format_text(text: str, settings: Settings, context_hint: str = "") -> str:
     """Two-tier formatter: always run FastFormatter, escalate to LLM when warranted."""
     fast_result = FastFormatter().format(text)
+    word_count = len(text.split())
 
-    if len(text.split()) < settings.llm_word_threshold:
+    log.debug("format_text: %d words, backend=%s, threshold=%d",
+              word_count, settings.formatter_backend, settings.llm_word_threshold)
+
+    if word_count < settings.llm_word_threshold:
+        log.debug("format_text: using fast (below threshold)")
         return fast_result
 
     if settings.formatter_backend == "fast":
+        log.debug("format_text: using fast (backend=fast)")
         return fast_result
 
     llm_formatter = create_formatter(settings)
+    log.debug("format_text: calling LLM formatter")
     result = llm_formatter.format(text, context_hint)
+    log.debug("format_text: LLM returned %r", result[:80] if result else None)
     return result if result else fast_result
