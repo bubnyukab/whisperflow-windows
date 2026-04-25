@@ -29,7 +29,7 @@ class TestTextInjectorInject:
         with (
             patch("src.injection.text_injector.pyperclip.paste", mock_paste),
             patch("src.injection.text_injector.pyperclip.copy", mock_copy),
-            patch("src.injection.text_injector.keyboard.send", mock_send),
+            patch("src.injection.text_injector._send_ctrl_v", mock_send),
             patch("src.injection.text_injector.time.sleep"),
         ):
             result = TextInjector().inject(text)
@@ -45,7 +45,7 @@ class TestTextInjectorInject:
 
     def test_sends_ctrl_v(self) -> None:
         _, _, _, mock_send = self._run()
-        mock_send.assert_called_once_with("ctrl+v")
+        mock_send.assert_called_once()
 
     def test_restores_old_clipboard_after_inject(self) -> None:
         _, _, mock_copy, _ = self._run(text="new", old_clipboard="saved")
@@ -58,7 +58,7 @@ class TestTextInjectorInject:
         with (
             patch("src.injection.text_injector.pyperclip.paste", return_value="old"),
             patch("src.injection.text_injector.pyperclip.copy", side_effect=lambda t: calls.append(f"copy({t})")),
-            patch("src.injection.text_injector.keyboard.send", side_effect=lambda k: calls.append(f"send({k})")),
+            patch("src.injection.text_injector._send_ctrl_v", side_effect=lambda: calls.append("send(ctrl+v)")),
             patch("src.injection.text_injector.time.sleep", side_effect=lambda s: calls.append(f"sleep({s})")),
         ):
             TextInjector().inject("hello")
@@ -83,7 +83,7 @@ class TestTextInjectorInject:
         with (
             patch("src.injection.text_injector.pyperclip.paste", return_value="old"),
             patch("src.injection.text_injector.pyperclip.copy", side_effect=Exception("copy fail")),
-            patch("src.injection.text_injector.keyboard.send"),
+            patch("src.injection.text_injector._send_ctrl_v"),
             patch("src.injection.text_injector.time.sleep"),
         ):
             result = TextInjector().inject("text")
@@ -94,7 +94,7 @@ class TestTextInjectorInject:
         with (
             patch("src.injection.text_injector.pyperclip.paste", return_value=""),
             patch("src.injection.text_injector.pyperclip.copy"),
-            patch("src.injection.text_injector.keyboard.send"),
+            patch("src.injection.text_injector._send_ctrl_v"),
             patch("src.injection.text_injector.time.sleep", side_effect=sleep_calls.append),
         ):
             TextInjector().inject("hello")
@@ -105,7 +105,7 @@ class TestTextInjectorInject:
         with (
             patch("src.injection.text_injector.pyperclip.paste", return_value=""),
             patch("src.injection.text_injector.pyperclip.copy"),
-            patch("src.injection.text_injector.keyboard.send"),
+            patch("src.injection.text_injector._send_ctrl_v"),
             patch("src.injection.text_injector.time.sleep", side_effect=sleep_calls.append),
         ):
             TextInjector().inject("hello")

@@ -66,6 +66,7 @@ def _bare_app() -> TrayApp:
     app._state_lock = threading.Lock()
     app._tray = None
     app._done_timer = None
+    app._indicator = MagicMock()
     return app
 
 
