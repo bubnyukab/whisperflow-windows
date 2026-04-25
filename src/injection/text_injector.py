@@ -15,6 +15,14 @@ _TOAST_WIDTH = 420
 _TOAST_HEIGHT = 180
 
 
+def _send_ctrl_v() -> None:
+    """Simulate a Ctrl+V keystroke via pynput."""
+    _kb = _KbController()
+    with _kb.pressed(_Key.ctrl):
+        _kb.press('v')
+        _kb.release('v')
+
+
 class TextInjector:
     """Injects text into the focused application via clipboard paste."""
 
@@ -38,10 +46,7 @@ class TextInjector:
             time.sleep(0.05)
 
             # 4. Simulate paste
-            _kb = _KbController()
-            with _kb.pressed(_Key.ctrl):
-                _kb.press('v')
-                _kb.release('v')
+            _send_ctrl_v()
 
             # 5. Wait for application to consume paste before restoring
             time.sleep(0.5)
