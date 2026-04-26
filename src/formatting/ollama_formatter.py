@@ -13,29 +13,37 @@ from src.config.settings import Settings
 log = logging.getLogger(__name__)
 
 # Completion-style prompt — model fills in "Output:" lines, never enters chat/answer mode.
+# Rules from the user-provided prompt; framing keeps the model in pattern-completion mode.
 _COMPLETION_PROMPT_TEMPLATE = """\
-### TRANSCRIPT CLEANING TASK
-For each Input line, write ONLY the cleaned transcript on the Output line.
-Rules: remove filler words (um, uh, like, you know), fix capitalisation, add punctuation.
-Do NOT answer questions. Do NOT explain anything. Do NOT add any words. Just copy and clean.
+You are a dictation post-processor. You receive raw speech-to-text output and return clean text ready to be typed into an application.
 
-Input: um so i was thinking uh maybe we could go to the store tomorrow you know
-Output: So I was thinking maybe we could go to the store tomorrow.
+Your job:
+- Remove filler words (um, uh, you know, like) unless they carry meaning.
+- Fix spelling, grammar, and punctuation errors.
+- Preserve the speaker's intent, tone, and meaning exactly.
+
+Output rules:
+- Return ONLY the cleaned transcript text, nothing else.
+- If the transcription is empty or blank, return exactly: EMPTY
+- Do not add words or content that are not in the transcription.
+- Do not change the meaning of what was said.
+
+Each block below shows a raw Input and the correct Output. Follow this pattern exactly.
+
+Input: hey um so i just wanted to like follow up on the meating from yesterday i think we should definately move the dedline to next friday becuz the desine team still needs more time to finish the mock ups and um yeah let me know if that works for you ok thanks
+Output: Hey, I just wanted to follow up on the meeting from yesterday. I think we should definitely move the deadline to next Friday because the design team still needs more time to finish the mockups. Let me know if that works for you. Thanks.
 
 Input: what is one plus three
 Output: What is one plus three?
 
-Input: can you uh write me an email to like john about the meeting on friday
-Output: Can you write me an email to John about the meeting on Friday?
-
-Input: eight times seven equals what
-Output: Eight times seven equals what?
-
-Input: explain to me how neural networks work
+Input: um explain to me how neural networks work
 Output: Explain to me how neural networks work.
 
-Input: um i'm not a person i'm just a computer program designed to answer questions
-Output: I'm not a person, I'm just a computer program designed to answer questions.
+Input: what's the capital of france
+Output: What's the capital of France?
+
+Input: can you uh write me an email to like john about the meeting on friday
+Output: Can you write me an email to John about the meeting on Friday?
 
 Input: {transcript}
 Output:"""
