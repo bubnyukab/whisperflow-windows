@@ -143,19 +143,24 @@ class TestOllamaFormatterClass:
         with patch("httpx.post", side_effect=RuntimeError("oops")):
             assert fmt.format("raw text") == "raw text"
 
-    def test_context_hint_appended_to_system_prompt(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
-            fmt.format("some text", context_hint="composing an email")
-        body = mock_post.call_args.kwargs["json"]
-        assert "composing an email" in body["system"]
-
-    def test_no_context_hint_system_prompt_unchanged(self) -> None:
+    def test_payload_uses_completion_prompt_not_chat_format(self) -> None:
+        """OllamaFormatter posts a 'prompt' completion, never chat 'system'/'messages'."""
         fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
         with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
             fmt.format("some text")
         body = mock_post.call_args.kwargs["json"]
-        assert "Context:" not in body["system"]
+        assert "prompt" in body
+        assert "system" not in body
+        assert "messages" not in body
+
+    def test_prompt_contains_raw_transcript_in_completion_template(self) -> None:
+        """The transcript is interpolated into the Input:/Output: completion template."""
+        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
+        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
+            fmt.format("send email to john")
+        prompt = mock_post.call_args.kwargs["json"]["prompt"]
+        assert "Input: send email to john" in prompt
+        assert prompt.rstrip().endswith("Output:")
 
     def test_posts_to_api_generate_endpoint(self) -> None:
         fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
