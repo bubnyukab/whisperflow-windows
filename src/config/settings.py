@@ -11,8 +11,9 @@ import httpx
 from dotenv import load_dotenv
 
 SETTINGS_PATH = Path.home() / ".whisperflow" / "config.json"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-_PATH_FIELDS = {"models_dir", "log_dir"}
+_PATH_FIELDS = {"models_dir", "log_dir", "local_model_path"}
 
 # Env vars that override the corresponding Settings fields (lower priority than config.json is
 # intentionally reversed here: env vars win over config.json so the user can override without
@@ -31,11 +32,14 @@ class Settings:
 
     whisper_model: str = "tiny.en"
     hotkey: str = "win+shift+space"
-    formatter_backend: str = "ollama"    # "fast" | "ollama" | "claude"
+    formatter_backend: str = "ollama"    # "fast" | "ollama" | "claude" | "local"
     ollama_model: str = "llama3.1:8b"
     ollama_url: str = "http://localhost:11434"
     ollama_timeout: float = 15.0
     anthropic_api_key: str = ""          # populated at runtime from env, never stored
+    local_model_path: Path = field(
+        default_factory=lambda: _PROJECT_ROOT / "models" / "whisperflow-cleaner" / "model.gguf"
+    )
     llm_word_threshold: int = 10
     vad_silence_ms: int = 400
     language: str = "en"

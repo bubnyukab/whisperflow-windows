@@ -9,3 +9,11 @@ Pillow>=10.4.0
 python-dotenv>=1.0.0
 pytest>=8.0.0
 pyinstaller>=6.0.0
+
+# Local GGUF cleaner (formatter_backend="local"). The cu124 prebuilt wheel is
+# forward-compatible with CUDA 12.x runtimes (we use it under cu126 torch).
+# Install with:
+#   pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+#       llama-cpp-python==0.3.4
+# Without the extra index, pip falls back to a CPU-only source build.
+llama-cpp-python==0.3.4
