@@ -20,6 +20,14 @@ _local_cached_path: str | None = None
 _local_init_failed: bool = False
 
 
+def reset_local_formatter() -> None:
+    """Clear the cached LocalLLMFormatter so the next call reloads from disk."""
+    global _local_instance, _local_cached_path, _local_init_failed
+    _local_instance = None
+    _local_cached_path = None
+    _local_init_failed = False
+
+
 def _get_local_formatter(settings: Settings):
     """Return a cached LocalLLMFormatter, or None if init failed."""
     global _local_instance, _local_cached_path, _local_init_failed

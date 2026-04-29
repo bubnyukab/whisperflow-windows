@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 from typing import Callable
 
@@ -14,7 +15,7 @@ log = logging.getLogger(__name__)
 
 _WHISPER_MODELS = ["tiny.en", "base.en", "medium.en", "large-v3"]
 _OLLAMA_MODELS = ["phi3:mini", "mistral:7b", "llama3.1:8b", "gemma2:9b"]
-_LANGUAGES = ["en", "de", "fr", "es", "it", "pt", "zh", "ja", "ko", "ru"]
+_LANGUAGES = ["auto", "en", "de", "fr", "es", "it", "pt", "zh", "ja", "ko", "ru"]
 _BACKENDS = ["Fast only", "Local LLM (fine-tuned)", "Ollama (local, free)", "Claude API (paid)"]
 
 # Map display name → internal value
@@ -164,6 +165,24 @@ class SettingsWindow:
             command=self._test_claude_key,
         ).grid(row=1, column=0, sticky="w", padx=4, pady=3)
 
+        # --- Local LLM section ---
+        self._local_frame = ttk.LabelFrame(frame, text="Local LLM settings", padding=8)
+        self._local_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
+                               padx=6, pady=(8, 4))
+
+        ttk.Label(self._local_frame, text="Model path:").grid(
+            row=0, column=0, sticky="w", padx=4, pady=3
+        )
+        self._local_model_path_var = tk.StringVar(value=str(self._settings.local_model_path))
+        ttk.Label(
+            self._local_frame, textvariable=self._local_model_path_var,
+            wraplength=240, justify="left",
+        ).grid(row=0, column=1, sticky="ew", padx=4, pady=3)
+        ttk.Button(
+            self._local_frame, text="Browse...",
+            command=self._browse_local_model,
+        ).grid(row=1, column=0, sticky="w", padx=4, pady=3)
+
         # --- LLM word threshold ---
         ttk.Label(frame, text="LLM word threshold:").grid(row=3, column=0, sticky="w", **pad)
         self._threshold_var = tk.IntVar(value=self._settings.llm_word_threshold)
@@ -219,12 +238,19 @@ class SettingsWindow:
         if backend == "ollama":
             self._ollama_frame.grid()
             self._claude_frame.grid_remove()
+            self._local_frame.grid_remove()
         elif backend == "claude":
             self._ollama_frame.grid_remove()
             self._claude_frame.grid()
+            self._local_frame.grid_remove()
+        elif backend == "local":
+            self._ollama_frame.grid_remove()
+            self._claude_frame.grid_remove()
+            self._local_frame.grid()
         else:
             self._ollama_frame.grid_remove()
             self._claude_frame.grid_remove()
+            self._local_frame.grid_remove()
 
     def _update_latency_label(self) -> None:
         model = self._whisper_var.get() if hasattr(self, "_whisper_var") else self._settings.whisper_model
@@ -305,6 +331,15 @@ class SettingsWindow:
             if hasattr(self, "_mic_result_var"):
                 self._mic_result_var.set(f"Error: {exc}")
 
+    def _browse_local_model(self) -> None:
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Select GGUF model file",
+            filetypes=[("GGUF files", "*.gguf"), ("All files", "*.*")],
+        )
+        if path and hasattr(self, "_local_model_path_var"):
+            self._local_model_path_var.set(path)
+
     # ------------------------------------------------------------------
     # Save / cancel
     # ------------------------------------------------------------------
@@ -323,6 +358,7 @@ class SettingsWindow:
             ollama_timeout=self._settings.ollama_timeout,
             llm_word_threshold=self._threshold_var.get() if hasattr(self, "_threshold_var") else self._settings.llm_word_threshold,
             vad_silence_ms=self._vad_var.get() if hasattr(self, "_vad_var") else self._settings.vad_silence_ms,
+            local_model_path=Path(self._local_model_path_var.get()) if hasattr(self, "_local_model_path_var") else self._settings.local_model_path,
             history_max=self._settings.history_max,
             models_dir=self._settings.models_dir,
             log_dir=self._settings.log_dir,

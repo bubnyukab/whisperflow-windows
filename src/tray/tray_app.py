@@ -173,12 +173,18 @@ class TrayApp:
         ):
             self._on_hotkey_changed(new_settings)
         if (
+            new_settings.formatter_backend != old.formatter_backend
+            or new_settings.local_model_path != old.local_model_path
+        ):
+            from src.formatting import reset_local_formatter
+            reset_local_formatter()
+        if (
             new_settings.whisper_model != old.whisper_model
             or new_settings.vad_silence_ms != old.vad_silence_ms
         ):
             self.show_notification(
                 "WhisperFlow",
-                "Restart WhisperFlow to apply Whisper model changes.",
+                "Restart WhisperFlow to apply Whisper model / VAD changes.",
             )
 
     def _open_history(self, icon: object, item: object) -> None:

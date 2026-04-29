@@ -28,6 +28,7 @@ def _make_window(backend: str = "ollama") -> SettingsWindow:
     # Inject mock frames that the visibility logic operates on
     win._ollama_frame = MagicMock()
     win._claude_frame = MagicMock()
+    win._local_frame = MagicMock()
     backend_label = {v: k for k, v in _BACKEND_VALUES.items()}.get(backend, "Fast only")
     win._backend_var = MagicMock()
     win._backend_var.get.return_value = backend_label
