@@ -113,16 +113,19 @@ def _run_pipeline(
 
 
 def _build_on_transcript(
-    settings: Settings,
     tray: "TrayApp",
     injector: "TextInjector",
     history_path: Path,
 ) -> Callable[[str], None]:
-    """Return a callback that runs _run_pipeline in a daemon thread."""
+    """Return a callback that runs _run_pipeline in a daemon thread.
+
+    Reads tray._settings at call time so settings changes made via the UI
+    take effect on the next recording without requiring a restart.
+    """
     def on_transcript(raw_text: str) -> None:
         threading.Thread(
             target=_run_pipeline,
-            args=(raw_text, settings, tray, injector, history_path),
+            args=(raw_text, tray._settings, tray, injector, history_path),
             daemon=True,
         ).start()
     return on_transcript
@@ -261,7 +264,7 @@ def main() -> None:
 
     tray = TrayApp(settings, on_hotkey_changed=_on_hotkey_changed)
     injector = TextInjector()
-    on_transcript_cb = _build_on_transcript(settings, tray, injector, _HISTORY_PATH)
+    on_transcript_cb = _build_on_transcript(tray, injector, _HISTORY_PATH)
     recorder = RealtimeRecorder(settings, on_transcript=on_transcript_cb)
 
     hotkey = HotkeyListener(

@@ -98,7 +98,7 @@ def save_settings(settings: Settings) -> None:
 def check_ollama(url: str) -> bool:
     """Return True if Ollama is reachable at {url}/api/tags; never raises."""
     try:
-        httpx.get(f"{url}/api/tags", timeout=2.0)
-        return True
+        resp = httpx.get(f"{url}/api/tags", timeout=2.0)
+        return resp.status_code == 200
     except Exception:
         return False

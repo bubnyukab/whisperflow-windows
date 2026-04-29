@@ -172,6 +172,14 @@ class TrayApp:
             or new_settings.recording_mode != old.recording_mode
         ):
             self._on_hotkey_changed(new_settings)
+        if (
+            new_settings.whisper_model != old.whisper_model
+            or new_settings.vad_silence_ms != old.vad_silence_ms
+        ):
+            self.show_notification(
+                "WhisperFlow",
+                "Restart WhisperFlow to apply Whisper model changes.",
+            )
 
     def _open_history(self, icon: object, item: object) -> None:
         threading.Thread(target=self._show_history_window, daemon=True).start()

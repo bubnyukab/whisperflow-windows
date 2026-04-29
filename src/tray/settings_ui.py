@@ -15,11 +15,12 @@ log = logging.getLogger(__name__)
 _WHISPER_MODELS = ["tiny.en", "base.en", "medium.en", "large-v3"]
 _OLLAMA_MODELS = ["phi3:mini", "mistral:7b", "llama3.1:8b", "gemma2:9b"]
 _LANGUAGES = ["en", "de", "fr", "es", "it", "pt", "zh", "ja", "ko", "ru"]
-_BACKENDS = ["Fast only", "Ollama (local, free)", "Claude API (paid)"]
+_BACKENDS = ["Fast only", "Local LLM (fine-tuned)", "Ollama (local, free)", "Claude API (paid)"]
 
 # Map display name → internal value
 _BACKEND_VALUES = {
     "Fast only": "fast",
+    "Local LLM (fine-tuned)": "local",
     "Ollama (local, free)": "ollama",
     "Claude API (paid)": "claude",
 }
