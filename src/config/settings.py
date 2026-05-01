@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 SETTINGS_PATH = Path.home() / ".whisperflow" / "config.json"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-_PATH_FIELDS = {"models_dir", "log_dir", "local_model_path"}
+_PATH_FIELDS = {"models_dir", "log_dir", "local_model_path", "training_pairs_path"}
 
 # Env vars that override the corresponding Settings fields (lower priority than config.json is
 # intentionally reversed here: env vars win over config.json so the user can override without
@@ -47,6 +47,9 @@ class Settings:
     history_max: int = 50
     models_dir: Path = field(default_factory=lambda: Path.home() / ".whisperflow" / "models")
     log_dir: Path = field(default_factory=lambda: Path.home() / ".whisperflow" / "logs")
+    training_pairs_path: Path = field(
+        default_factory=lambda: Path.home() / ".whisperflow" / "training_pairs.jsonl"
+    )
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:

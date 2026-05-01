@@ -10,7 +10,7 @@ import pytest
 from PIL import Image
 
 from src.config.settings import Settings
-from src.tray.tray_app import TrayApp, make_circle_icon
+from src.tray.tray_app import TrayApp, make_circle_icon, _TRAINING_COLOR
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +54,19 @@ class TestMakeCircleIcon:
         img = make_circle_icon("idle")
         assert img.mode == "RGBA"
 
+    def test_training_mode_false_no_orange_indicator(self) -> None:
+        img = make_circle_icon("idle", training_mode=False)
+        r, g, b, _ = img.getpixel((52, 12))  # top-right indicator area
+        assert (r, g, b) != _TRAINING_COLOR, "Orange indicator should be absent"
+
+    def test_training_mode_true_has_orange_indicator(self) -> None:
+        img = make_circle_icon("idle", training_mode=True)
+        r, g, b, a = img.getpixel((52, 12))  # center of orange dot region
+        assert (r, g, b) == _TRAINING_COLOR and a == 255, "Orange indicator should be present"
+
+    def test_training_mode_does_not_change_icon_size(self) -> None:
+        assert make_circle_icon("idle", training_mode=True).size == (64, 64)
+
 
 # ---------------------------------------------------------------------------
 # TrayApp state machine — uses object.__new__ to skip full initialization
@@ -67,6 +80,7 @@ def _bare_app() -> TrayApp:
     app._tray = None
     app._done_timer = None
     app._indicator = MagicMock()
+    app._training_mode = False
     return app
 
 
@@ -185,3 +199,48 @@ class TestSettingsWindowInstantiation:
         cb: Callable = lambda s: None
         win = SettingsWindow(settings=Settings(), on_save=cb)
         assert win._on_save is cb
+
+
+# ---------------------------------------------------------------------------
+# Training mode toggle
+# ---------------------------------------------------------------------------
+
+class TestTrainingMode:
+    def test_training_mode_defaults_false(self) -> None:
+        app = _bare_app()
+        assert app.training_mode is False
+
+    def test_toggle_training_mode_enables(self) -> None:
+        app = _bare_app()
+        app._toggle_training_mode(None, None)
+        assert app.training_mode is True
+
+    def test_toggle_training_mode_disables_again(self) -> None:
+        app = _bare_app()
+        app._toggle_training_mode(None, None)
+        app._toggle_training_mode(None, None)
+        assert app.training_mode is False
+
+    def test_toggle_updates_tray_icon(self) -> None:
+        app = _bare_app()
+        mock_tray = MagicMock()
+        app._tray = mock_tray
+        app._toggle_training_mode(None, None)
+        assert isinstance(mock_tray.icon, Image.Image)
+
+    def test_toggle_calls_update_menu(self) -> None:
+        app = _bare_app()
+        mock_tray = MagicMock()
+        app._tray = mock_tray
+        app._toggle_training_mode(None, None)
+        mock_tray.update_menu.assert_called_once()
+
+    def test_set_state_preserves_training_mode_in_icon(self) -> None:
+        app = _bare_app()
+        mock_tray = MagicMock()
+        app._tray = mock_tray
+        app._training_mode = True
+        app.set_state("recording")
+        icon = mock_tray.icon
+        r, g, b, a = icon.getpixel((52, 12))
+        assert (r, g, b) == _TRAINING_COLOR and a == 255

@@ -19,6 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 from src.config.settings import Settings, check_ollama, load_settings, SETTINGS_PATH
 from src.formatting import format_text
+from src.training.collector import TrainingCollector
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ def _run_pipeline(
     tray: "TrayApp",
     injector: "TextInjector",
     history_path: Path,
+    collector: "TrainingCollector | None" = None,
 ) -> None:
     """Format → inject → history.  Never raises; surfaces errors via tray."""
     try:
@@ -108,6 +110,13 @@ def _run_pipeline(
             settings.history_max,
         )
         tray.set_state("done")
+
+        if tray.training_mode and collector is not None:
+            from src.training.review_window import ReviewWindow
+            threading.Thread(
+                target=ReviewWindow(raw_text, final_text, collector).run,
+                daemon=True,
+            ).start()
     except Exception:
         log.exception("Pipeline error processing transcript")
         tray.show_notification("WhisperFlow Error", "Pipeline error — check logs.")
@@ -117,6 +126,7 @@ def _build_on_transcript(
     tray: "TrayApp",
     injector: "TextInjector",
     history_path: Path,
+    collector: "TrainingCollector",
 ) -> Callable[[str], None]:
     """Return a callback that runs _run_pipeline in a daemon thread.
 
@@ -126,7 +136,7 @@ def _build_on_transcript(
     def on_transcript(raw_text: str) -> None:
         threading.Thread(
             target=_run_pipeline,
-            args=(raw_text, tray._settings, tray, injector, history_path),
+            args=(raw_text, tray._settings, tray, injector, history_path, collector),
             daemon=True,
         ).start()
     return on_transcript
@@ -265,7 +275,8 @@ def main() -> None:
 
     tray = TrayApp(settings, on_hotkey_changed=_on_hotkey_changed)
     injector = TextInjector()
-    on_transcript_cb = _build_on_transcript(tray, injector, _HISTORY_PATH)
+    collector = TrainingCollector(settings.training_pairs_path)
+    on_transcript_cb = _build_on_transcript(tray, injector, _HISTORY_PATH, collector)
     recorder = RealtimeRecorder(settings, on_transcript=on_transcript_cb)
 
     hotkey = HotkeyListener(

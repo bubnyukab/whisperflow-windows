@@ -35,12 +35,20 @@ _STATE_LABELS: dict[str, str] = {
 _DONE_RESET_DELAY = 1.5
 
 
-def make_circle_icon(state: str) -> Image.Image:
-    """Return a 64×64 RGBA image with a solid-color filled circle for state."""
+_TRAINING_COLOR = (255, 140, 0)  # orange indicator
+
+
+def make_circle_icon(state: str, training_mode: bool = False) -> Image.Image:
+    """Return a 64×64 RGBA image with a solid-color filled circle for state.
+
+    When training_mode is True a small orange dot appears in the top-right corner.
+    """
     color = _STATE_COLORS.get(state, _STATE_COLORS["idle"])
     img = Image.new("RGBA", _ICON_SIZE, (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     draw.ellipse([4, 4, 60, 60], fill=(*color, 255))
+    if training_mode:
+        draw.ellipse([44, 4, 60, 20], fill=(*_TRAINING_COLOR, 255))
     return img
 
 
@@ -61,10 +69,16 @@ class TrayApp:
         self._on_hotkey_press: Optional[Callable] = None
         self._on_hotkey_release: Optional[Callable] = None
         self._indicator = RecordingIndicator()
+        self._training_mode: bool = False
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
+
+    @property
+    def training_mode(self) -> bool:
+        """True when training mode is active."""
+        return self._training_mode
 
     def run(self) -> None:
         """Build the tray icon and block on the main thread."""
@@ -74,6 +88,12 @@ class TrayApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Settings...", self._open_settings),
             pystray.MenuItem("View history", self._open_history),
+            pystray.MenuItem(
+                "Training Mode",
+                self._toggle_training_mode,
+                checked=lambda item: self._training_mode,
+            ),
+            pystray.MenuItem("View training pairs", self._open_training_pairs),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._quit),
         )
@@ -95,7 +115,7 @@ class TrayApp:
             self._state = state
 
         if self._tray is not None:
-            self._tray.icon = make_circle_icon(state)
+            self._tray.icon = make_circle_icon(state, self._training_mode)
             self._tray.update_menu()
 
         self._indicator.set_state(state)
@@ -226,6 +246,73 @@ class TrayApp:
             root.mainloop()
         except Exception:
             log.warning("History window failed", exc_info=True)
+
+    def _toggle_training_mode(self, icon: object, item: object) -> None:
+        self._training_mode = not self._training_mode
+        if self._tray is not None:
+            self._tray.icon = make_circle_icon(self._state, self._training_mode)
+            self._tray.update_menu()
+        log.info("Training mode %s", "ON" if self._training_mode else "OFF")
+
+    def _open_training_pairs(self, icon: object, item: object) -> None:
+        threading.Thread(target=self._show_training_pairs_window, daemon=True).start()
+
+    def _show_training_pairs_window(self) -> None:
+        from src.training.collector import TrainingCollector
+        collector = TrainingCollector(self._settings.training_pairs_path)
+        pairs = collector.load_pairs()
+
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+
+            root = tk.Tk()
+            root.title("WhisperFlow — Training Pairs")
+            root.geometry("700x450")
+
+            # Header
+            header = tk.Frame(root, bg="#1e1e1e", pady=8)
+            header.pack(fill="x")
+            tk.Label(header, text=f"Training pairs collected: {len(pairs)}",
+                     font=("Arial", 11, "bold"), bg="#1e1e1e", fg="white").pack(side="left",
+                                                                                padx=12)
+
+            def _export() -> None:
+                import pyperclip
+                pyperclip.copy(str(self._settings.training_pairs_path))
+                tk.messagebox.showinfo("Exported",
+                                       f"Path copied to clipboard:\n"
+                                       f"{self._settings.training_pairs_path}")
+
+            tk.Button(header, text="Export for training", command=_export,
+                      bg="#2a4a6a", fg="white", relief="flat",
+                      padx=10, pady=4).pack(side="right", padx=12)
+
+            # Pairs list (last 10)
+            text = tk.Text(root, wrap="word", state="disabled", padx=10, pady=8,
+                           bg="#111111", fg="#dddddd", font=("Consolas", 9))
+            scroll = ttk.Scrollbar(root, command=text.yview)
+            text.configure(yscrollcommand=scroll.set)
+            scroll.pack(side="right", fill="y")
+            text.pack(fill="both", expand=True)
+
+            text.configure(state="normal")
+            if pairs:
+                for entry in pairs[-10:]:
+                    raw = entry.get("input", "")
+                    cleaned = entry.get("output", "")
+                    ts = entry.get("timestamp", "")
+                    text.insert("end", f"[{ts}]\n")
+                    text.insert("end", f"  Raw:   {raw}\n")
+                    text.insert("end", f"  Clean: {cleaned}\n\n")
+            else:
+                text.insert("end", "No training pairs collected yet.\n\n"
+                                   "Enable Training Mode from the tray menu, then dictate.")
+            text.configure(state="disabled")
+
+            root.mainloop()
+        except Exception:
+            log.warning("Training pairs window failed", exc_info=True)
 
     def _quit(self, icon: object, item: object) -> None:
         if self._tray:
