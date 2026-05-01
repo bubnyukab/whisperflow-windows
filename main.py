@@ -51,6 +51,8 @@ def _setup_logging(debug: bool) -> None:
     )
     logging.getLogger("RealtimeSTT.safepipe").setLevel(logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def _apply_cli_overrides(args: argparse.Namespace, settings: Settings) -> Settings:
@@ -146,12 +148,25 @@ def _build_on_transcript(
 
 
 # ---------------------------------------------------------------------------
-# Whisper pre-warm
+# Parallel startup loading
 # ---------------------------------------------------------------------------
 
-def _start_recorder_init(recorder: "RealtimeRecorder") -> None:
-    """Initialize the AudioToTextRecorder in the background so startup is non-blocking."""
-    threading.Thread(target=recorder.initialize, daemon=True).start()
+def _start_parallel_init(recorder: "RealtimeRecorder", settings: Settings) -> None:
+    """Start Whisper and the local LLM formatter in parallel daemon threads.
+
+    Total load time = max(whisper_load, llm_load) instead of their sum.
+    The LLM pre-warm is skipped when the backend is not "local".
+    """
+    threading.Thread(target=recorder.initialize, daemon=True,
+                     name="whisper-init").start()
+
+    if settings.formatter_backend == "local":
+        def _preload_local_formatter() -> None:
+            from src.formatting import _get_local_formatter
+            _get_local_formatter(settings)
+
+        threading.Thread(target=_preload_local_formatter, daemon=True,
+                         name="llm-init").start()
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +309,8 @@ def main() -> None:
     )
     hotkey.start()
 
-    # 5. Initialize AudioToTextRecorder in background (loads Whisper model once).
-    _start_recorder_init(recorder)
+    # 5. Load Whisper and the local LLM formatter in parallel.
+    _start_parallel_init(recorder, settings)
 
     # Notify about Ollama after tray renders (small delay)
     if ollama_down:
