@@ -18,46 +18,44 @@ Target latency: <700ms end-to-end on GPU, <1.5s on CPU-only machines.
    RealtimeSTT transcribes while you speak rather than after
 
 ## Tech Stack
-- Python 3.11+
+- Python 3.12
 - RealtimeSTT (streaming audio + VAD + faster-whisper integration)
 - faster-whisper (CTranslate2 Whisper backend)
 - Ollama (local LLM server — must be installed separately from ollama.com)
 - httpx (Ollama API calls)
 - anthropic SDK (optional Claude API formatter)
-- keyboard (global hotkeys, Windows-compatible)
+- pynput (global hotkeys and keyboard input)
 - pyperclip (clipboard management)
 - pystray + Pillow (system tray)
 - tkinter (settings UI, Python stdlib — no extra install)
 - python-dotenv (optional API key loading)
+- llama-cpp-python (local GGUF inference for fine-tuned formatter)
 - PyInstaller (packaging to .exe)
 
 ## Environment
 - Always use the `.venv` virtual environment in the project root
-- Activate with: `source .venv/bin/activate`
-- Install deps with: `.venv/bin/pip install -r requirements.txt`
-- Run all Python commands through `.venv/bin/python`, not system python3
-
-## Linux System Dependencies
-Before installing Python requirements, ensure these are installed:
-```bash
-sudo apt-get install portaudio19-dev python3-pyaudio python3-dev
-```
+- Activate with: `.venv\Scripts\activate`
+- Install deps with: `.venv\Scripts\pip install -r requirements.txt`
+- Run all Python commands through `.venv\Scripts\python`, not system python
 
 ## Available MCP Servers
 - **Superpowers** — filesystem ops, running scripts, reading logs
 - **Context7** — look up latest docs for RealtimeSTT, faster-whisper,
-  Ollama REST API, anthropic SDK, pystray, keyboard. ALWAYS use Context7
+  Ollama REST API, anthropic SDK, pystray, pynput. ALWAYS use Context7
   before writing any library API calls — never rely on memory alone.
 - **Playwright** — E2E testing the settings UI
 - **GitHub MCP** — create repo, push commits, manage issues and releases
 
 ## Key Commands
-```bash
+```powershell
 # Install Python deps
-pip install -r requirements.txt
+.venv\Scripts\pip install -r requirements.txt
+
+# Install llama-cpp-python with CUDA support (optional, for local formatter)
+.venv\Scripts\pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 llama-cpp-python==0.3.4
 
 # Pre-warm Whisper model (downloads ~75MB on first run for tiny.en)
-python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en')"
+.venv\Scripts\python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en')"
 
 # Install and start Ollama (done manually by user outside Python)
 # Download from https://ollama.com then run:
@@ -66,16 +64,16 @@ ollama pull phi3:mini        # lighter option for CPU-only (2.3GB)
 ollama serve                 # start the local API server
 
 # Run in development
-python main.py --dev
+.venv\Scripts\python main.py --dev
 
 # Run tests
-python -m pytest tests/ -v
+.venv\Scripts\python -m pytest tests/ -v
 
 # Run latency benchmark
-python tools/benchmark.py --model tiny.en --backend ollama
+.venv\Scripts\python tools/benchmark.py --model tiny.en --backend ollama
 
 # Build executable
-pyinstaller build/build.spec
+.venv\Scripts\pyinstaller build/build.spec
 ```
 
 ## Architecture Rules
@@ -83,7 +81,7 @@ pyinstaller build/build.spec
    and Whisper transcription in one integrated streaming loop. Do not use raw
    sounddevice for the main recording path.
 2. **Two-tier formatter is mandatory** — always run FastFormatter first.
-   Only call Ollama/Claude if word count >= llm_word_threshold (default 10)
+   Only call Ollama/Claude/Local if word count >= llm_word_threshold (default 10)
    AND the LLM backend is enabled in settings.
 3. **Whisper model: tiny.en by default** — fastest, accurate enough for short
    inputs. Preload at startup, not on first keypress.
@@ -98,6 +96,7 @@ pyinstaller build/build.spec
 9. **Never crash silently** — all exceptions must surface as tray notifications.
 
 ## Formatter Selection Logic
+```
 user speaks
 → fast_formatter always runs first (<5ms)
 word count < llm_word_threshold (10)?
@@ -105,14 +104,27 @@ word count < llm_word_threshold (10)?
 word count >= threshold?
 → check settings.formatter_backend
 "fast"   → inject fast_formatter result
+"local"  → call local_llm_formatter (GGUF), fallback to fast on error
 "ollama" → call ollama_formatter, fallback to fast on error
 "claude" → call claude_formatter, fallback to fast on error
+```
+
+## Training Mode
+When Training Mode is toggled on from the tray menu:
+- Tray icon shows a small orange dot (RGB 255, 140, 0)
+- After each transcription, a `ReviewWindow` popup appears (bottom-right, non-blocking)
+- User can accept the pair as-is, edit the cleaned text, or skip
+- Auto-saves as-is after 15 seconds if no action is taken
+- Pairs saved to `settings.training_pairs_path` (default `~/.whisperflow/training_pairs.jsonl`) in JSONL format: `{"input": ..., "output": ..., "timestamp": ...}`
+- "View training pairs" tray menu item shows count, last 10 pairs, and an export button (copies path to clipboard)
+- Injection is never delayed — review happens asynchronously while the user keeps dictating
 
 ## Latency Targets
 - Hotkey press to recording start: <50ms
 - Recording end (VAD) to transcript: <200ms GPU / <700ms CPU (tiny.en)
 - Short input formatting (fast path): <5ms
 - Long input formatting (Ollama GPU): <400ms
+- Long input formatting (local GGUF, GPU): ~105ms
 - Text injection: <50ms
 - Total target: <700ms GPU / <1.5s CPU
 
@@ -140,6 +152,7 @@ Default: llama3.1:8b
 - Ollama unreachable at startup: warn in tray, fall back to fast_formatter
 - Whisper transcription fails: show tray error, do not inject anything
 - Ollama call fails or times out: fall back to fast_formatter result + tray warning
+- Local GGUF load fails: fall back to fast_formatter (sticky-cached failure state)
 - Claude API fails: fall back to fast_formatter result + tray warning
 - Text injection fails: show floating toast with text for manual copy
 - Never crash silently — always surface errors via tray notification
@@ -148,6 +161,8 @@ Default: llama3.1:8b
 - Unit test fast_formatter with known inputs and expected outputs
 - Unit test ollama_formatter with mocked httpx responses
 - Unit test RealtimeSTT wrapper with mocked audio input
+- Unit test TrainingCollector with real filesystem (tmp_path)
+- Unit test ReviewWindow actions (accept/skip/correct) without rendering GUI
 - Integration test full pipeline with tests/fixtures/sample.wav
 - Use Playwright for settings window UI smoke test
 
