@@ -14,16 +14,16 @@ from src.config.settings import Settings, check_ollama, load_settings, save_sett
 
 class TestSettingsDefaults:
     def test_whisper_model(self) -> None:
-        assert Settings().whisper_model == "tiny.en"
+        assert Settings().whisper_model == "medium.en"
 
     def test_hotkey(self) -> None:
-        assert Settings().hotkey == "win+shift+space"
+        assert Settings().hotkey == "ctrl+shift+space"
 
     def test_formatter_backend(self) -> None:
-        assert Settings().formatter_backend == "ollama"
+        assert Settings().formatter_backend == "local"
 
     def test_ollama_model(self) -> None:
-        assert Settings().ollama_model == "llama3.1:8b"
+        assert Settings().ollama_model == "phi3:mini"
 
     def test_ollama_url(self) -> None:
         assert Settings().ollama_url == "http://localhost:11434"
@@ -32,7 +32,7 @@ class TestSettingsDefaults:
         assert Settings().ollama_timeout == 15.0
 
     def test_llm_word_threshold(self) -> None:
-        assert Settings().llm_word_threshold == 10
+        assert Settings().llm_word_threshold == 4
 
     def test_vad_silence_ms(self) -> None:
         assert Settings().vad_silence_ms == 400
@@ -68,8 +68,8 @@ class TestLoadSettings:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
-        assert s.whisper_model == "tiny.en"
-        assert s.llm_word_threshold == 10
+        assert s.whisper_model == "medium.en"
+        assert s.llm_word_threshold == 4
 
     def test_creates_config_file_when_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_path = tmp_path / "config.json"
@@ -108,7 +108,7 @@ class TestLoadSettings:
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
         monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
-        assert s.whisper_model == "tiny.en"
+        assert s.whisper_model == "medium.en"
 
     def test_api_key_from_environment(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_path = tmp_path / "config.json"

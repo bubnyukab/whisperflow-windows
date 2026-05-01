@@ -33,17 +33,17 @@ _ENV_FIELD_MAP: dict[str, str] = {
 class Settings:
     """All user-configurable settings for WhisperFlow."""
 
-    whisper_model: str = "tiny.en"
-    hotkey: str = "win+shift+space"
-    formatter_backend: str = "ollama"    # "fast" | "ollama" | "claude" | "local"
-    ollama_model: str = "llama3.1:8b"
+    whisper_model: str = "medium.en"
+    hotkey: str = "ctrl+shift+space"
+    formatter_backend: str = "local"     # "fast" | "ollama" | "claude" | "local"
+    ollama_model: str = "phi3:mini"
     ollama_url: str = "http://localhost:11434"
     ollama_timeout: float = 15.0
     anthropic_api_key: str = ""          # populated at runtime from env, never stored
     local_model_path: Path = field(
         default_factory=lambda: _PROJECT_ROOT / "models" / "whisperflow-cleaner" / "model.gguf"
     )
-    llm_word_threshold: int = 10
+    llm_word_threshold: int = 4
     vad_silence_ms: int = 400
     language: str = "en"
     recording_mode: str = "hold"         # "hold" | "toggle"
