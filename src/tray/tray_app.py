@@ -64,12 +64,16 @@ class TrayApp:
         self._on_hotkey_changed = on_hotkey_changed
         self._state = "idle"
         self._state_lock = threading.Lock()
+        self._settings_lock = threading.Lock()  # guards _settings and _training_mode
         self._tray: Optional[pystray.Icon] = None
         self._done_timer: Optional[threading.Timer] = None
-        self._on_hotkey_press: Optional[Callable] = None
-        self._on_hotkey_release: Optional[Callable] = None
         self._indicator = RecordingIndicator()
         self._training_mode: bool = False
+        # Window deduplication: tracks open singleton windows
+        self._window_lock = threading.Lock()
+        self._settings_window_open: bool = False
+        self._history_window_open: bool = False
+        self._training_pairs_window_open: bool = False
 
     # ------------------------------------------------------------------
     # Public interface
@@ -78,7 +82,8 @@ class TrayApp:
     @property
     def training_mode(self) -> bool:
         """True when training mode is active."""
-        return self._training_mode
+        with self._settings_lock:
+            return self._training_mode
 
     def run(self) -> None:
         """Build the tray icon and block on the main thread."""
@@ -113,9 +118,10 @@ class TrayApp:
                 self._done_timer.cancel()
                 self._done_timer = None
             self._state = state
+            training = self._training_mode
 
         if self._tray is not None:
-            self._tray.icon = make_circle_icon(state, self._training_mode)
+            self._tray.icon = make_circle_icon(state, training)
             self._tray.update_menu()
 
         self._indicator.set_state(state)
@@ -123,9 +129,9 @@ class TrayApp:
         if state == "done":
             timer = threading.Timer(_DONE_RESET_DELAY, lambda: self.set_state("idle"))
             timer.daemon = True
-            timer.start()
             with self._state_lock:
                 self._done_timer = timer
+            timer.start()
 
     def show_notification(self, title: str, message: str) -> None:
         """Spawn a daemon thread that shows a tkinter toast (bottom-right, 4s)."""
@@ -178,15 +184,26 @@ class TrayApp:
             log.warning("Toast notification failed", exc_info=True)
 
     def _open_settings(self, icon: object, item: object) -> None:
+        with self._window_lock:
+            if self._settings_window_open:
+                return
+            self._settings_window_open = True
         threading.Thread(target=self._run_settings_window, daemon=True).start()
 
     def _run_settings_window(self) -> None:
-        from src.tray.settings_ui import SettingsWindow
-        SettingsWindow(self._settings, on_save=self._on_settings_saved).run()
+        try:
+            with self._settings_lock:
+                settings = self._settings
+            from src.tray.settings_ui import SettingsWindow
+            SettingsWindow(settings, on_save=self._on_settings_saved).run()
+        finally:
+            with self._window_lock:
+                self._settings_window_open = False
 
     def _on_settings_saved(self, new_settings: Settings) -> None:
-        old = self._settings
-        self._settings = new_settings
+        with self._settings_lock:
+            old = self._settings
+            self._settings = new_settings
         if self._on_hotkey_changed and (
             new_settings.hotkey != old.hotkey
             or new_settings.recording_mode != old.recording_mode
@@ -208,6 +225,10 @@ class TrayApp:
             )
 
     def _open_history(self, icon: object, item: object) -> None:
+        with self._window_lock:
+            if self._history_window_open:
+                return
+            self._history_window_open = True
         threading.Thread(target=self._show_history_window, daemon=True).start()
 
     def _show_history_window(self) -> None:
@@ -246,20 +267,39 @@ class TrayApp:
             root.mainloop()
         except Exception:
             log.warning("History window failed", exc_info=True)
+        finally:
+            with self._window_lock:
+                self._history_window_open = False
 
     def _toggle_training_mode(self, icon: object, item: object) -> None:
-        self._training_mode = not self._training_mode
+        with self._settings_lock:
+            self._training_mode = not self._training_mode
+            training = self._training_mode
+            state = self._state
         if self._tray is not None:
-            self._tray.icon = make_circle_icon(self._state, self._training_mode)
+            self._tray.icon = make_circle_icon(state, training)
             self._tray.update_menu()
-        log.info("Training mode %s", "ON" if self._training_mode else "OFF")
+        log.info("Training mode %s", "ON" if training else "OFF")
 
     def _open_training_pairs(self, icon: object, item: object) -> None:
+        with self._window_lock:
+            if self._training_pairs_window_open:
+                return
+            self._training_pairs_window_open = True
         threading.Thread(target=self._show_training_pairs_window, daemon=True).start()
 
     def _show_training_pairs_window(self) -> None:
+        try:
+            self._do_show_training_pairs_window()
+        finally:
+            with self._window_lock:
+                self._training_pairs_window_open = False
+
+    def _do_show_training_pairs_window(self) -> None:
         from src.training.collector import TrainingCollector
-        collector = TrainingCollector(self._settings.training_pairs_path)
+        with self._settings_lock:
+            settings = self._settings
+        collector = TrainingCollector(settings.training_pairs_path)
         pairs = collector.load_pairs()
 
         try:
@@ -279,10 +319,10 @@ class TrayApp:
 
             def _export() -> None:
                 import pyperclip
-                pyperclip.copy(str(self._settings.training_pairs_path))
+                pyperclip.copy(str(settings.training_pairs_path))
                 tk.messagebox.showinfo("Exported",
                                        f"Path copied to clipboard:\n"
-                                       f"{self._settings.training_pairs_path}")
+                                       f"{settings.training_pairs_path}")
 
             tk.Button(header, text="Export for training", command=_export,
                       bg="#2a4a6a", fg="white", relief="flat",

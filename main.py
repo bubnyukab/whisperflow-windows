@@ -24,6 +24,7 @@ from src.training.collector import TrainingCollector
 log = logging.getLogger(__name__)
 
 _HISTORY_PATH = Path.home() / ".whisperflow" / "history.json"
+_history_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +37,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", metavar="MODEL",
                         help="Override Whisper model (tiny.en, base.en, …)")
     parser.add_argument(
-        "--backend", choices=["fast", "ollama", "claude"],
+        "--backend", choices=["fast", "ollama", "claude", "local"],
         help="Override formatter backend",
     )
     return parser.parse_args()
@@ -68,17 +69,19 @@ def _apply_cli_overrides(args: argparse.Namespace, settings: Settings) -> Settin
 
 def _append_history(entry: dict, path: Path, max_entries: int) -> None:
     """Append one entry to history.json, keeping only the last max_entries."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    entries: list[dict] = []
-    if path.exists():
-        try:
-            raw = json.loads(path.read_text())
-            if isinstance(raw, list):
-                entries = raw
-        except Exception:
-            entries = []
-    entries.append(entry)
-    path.write_text(json.dumps(entries[-max_entries:], indent=2))
+    with _history_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entries: list[dict] = []
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text())
+                if isinstance(raw, list):
+                    entries = raw
+            except Exception:
+                log.warning("history.json is corrupt — resetting to empty list")
+                entries = []
+        entries.append(entry)
+        path.write_text(json.dumps(entries[-max_entries:], indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +280,11 @@ def main() -> None:
     injector = TextInjector()
     collector = TrainingCollector(settings.training_pairs_path)
     on_transcript_cb = _build_on_transcript(tray, injector, _HISTORY_PATH, collector)
-    recorder = RealtimeRecorder(settings, on_transcript=on_transcript_cb)
+    recorder = RealtimeRecorder(
+        settings,
+        on_transcript=on_transcript_cb,
+        on_init_failed=lambda msg: tray.show_notification("WhisperFlow — Init Failed", msg),
+    )
 
     hotkey = HotkeyListener(
         hotkey=settings.hotkey,

@@ -10,6 +10,16 @@ python-dotenv>=1.0.0
 pytest>=8.0.0
 pyinstaller>=6.0.0
 
+# Required by local_llm_formatter.py — must be imported before llama_cpp on
+# Windows so the CUDA runtime DLLs are resolved from torch/lib/.
+# Install from https://pytorch.org (select your CUDA version).
+torch>=2.0.0
+
+# Optional mic-test dependencies (used in SettingsWindow._run_mic_test).
+sounddevice>=0.4.6
+numpy>=1.24.0
+scipy>=1.11.0
+
 # Local GGUF cleaner (formatter_backend="local"). The cu124 prebuilt wheel is
 # forward-compatible with CUDA 12.x runtimes (we use it under cu126 torch).
 # Install with:

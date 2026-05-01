@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 import httpx
 from dotenv import load_dotenv
@@ -84,6 +87,7 @@ def load_settings() -> Settings:
                 filtered[name] = Path(filtered[name])
         return _apply_env_overrides(Settings(**filtered, anthropic_api_key=api_key))
     except Exception:
+        log.warning("Failed to parse %s — falling back to defaults", SETTINGS_PATH, exc_info=True)
         return _apply_env_overrides(Settings(anthropic_api_key=api_key))
 
 

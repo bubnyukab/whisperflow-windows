@@ -77,10 +77,15 @@ def _bare_app() -> TrayApp:
     app = object.__new__(TrayApp)
     app._state = "idle"
     app._state_lock = threading.Lock()
+    app._settings_lock = threading.Lock()
+    app._window_lock = threading.Lock()
     app._tray = None
     app._done_timer = None
     app._indicator = MagicMock()
     app._training_mode = False
+    app._settings_window_open = False
+    app._history_window_open = False
+    app._training_pairs_window_open = False
     return app
 
 

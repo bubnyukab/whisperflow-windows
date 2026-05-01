@@ -16,7 +16,12 @@ from pathlib import Path
 # CUDA runtime in torch/lib/ is what provides them. Without this import
 # order, `from llama_cpp import Llama` fails with FileNotFoundError on
 # llama.dll's transitive dependencies.
-import torch  # noqa: F401
+try:
+    import torch  # noqa: F401
+except ImportError as _torch_err:
+    raise ImportError(
+        "Install PyTorch from pytorch.org — required for local LLM formatter."
+    ) from _torch_err
 from llama_cpp import Llama
 
 log = logging.getLogger(__name__)
@@ -40,6 +45,7 @@ class LocalLLMFormatter:
     ) -> None:
         path = Path(model_path)
         if not path.exists():
+            log.error("GGUF model not found: %s — local backend disabled for this session", path)
             raise FileNotFoundError(f"GGUF model not found: {path}")
         log.info("Loading GGUF cleaner from %s", path)
         self._model_path = path
@@ -51,6 +57,7 @@ class LocalLLMFormatter:
             seed=0,
             verbose=False,
         )
+        log.info("LocalLLMFormatter loaded successfully from %s", path)
 
     def format(self, raw_transcript: str, context_hint: str = "") -> str:
         """Clean a transcript via the local GGUF model. Falls back to raw on any error."""

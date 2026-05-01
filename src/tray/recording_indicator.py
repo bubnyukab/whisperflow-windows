@@ -11,6 +11,7 @@ log = logging.getLogger(__name__)
 _BG = "#1a1a1a"
 _W, _H = 220, 46
 _PULSE_MS = 480   # dot blink cadence while recording
+_READY_TIMEOUT = 3  # seconds to wait for the Tk window to become ready
 
 _STATE_CFG: dict[str, dict] = {
     "recording":  {"dot": "●", "dot_color": "#e03030", "text": "Recording…",  "text_color": "#ffffff", "pulse": True},
@@ -37,7 +38,7 @@ class RecordingIndicator:
         """Spawn the indicator thread and wait until the window is ready."""
         t = threading.Thread(target=self._run, daemon=True, name="recording-indicator")
         t.start()
-        self._ready.wait(timeout=3)
+        self._ready.wait(timeout=_READY_TIMEOUT)
 
     def set_state(self, state: str) -> None:
         """Schedule a state update on the indicator's own thread (safe to call from any thread)."""

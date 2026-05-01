@@ -270,7 +270,8 @@ class SettingsWindow:
             t0 = time.perf_counter()
             ok = check_ollama(url)
             ms = int((time.perf_counter() - t0) * 1000)
-            self._ollama_status_var.set(f"OK ({ms}ms)" if ok else "FAIL — Ollama not reachable")
+            msg = f"OK ({ms}ms)" if ok else "FAIL — Ollama not reachable"
+            self._root.after(0, lambda: self._ollama_status_var.set(msg))
 
         threading.Thread(target=_check, daemon=True).start()
 
@@ -286,9 +287,10 @@ class SettingsWindow:
                 import anthropic
                 client = anthropic.Anthropic(api_key=key)
                 client.models.list()
-                self._claude_status_var.set("OK")
+                self._root.after(0, lambda: self._claude_status_var.set("OK"))
             except Exception as exc:
-                self._claude_status_var.set(f"FAIL — {exc}")
+                msg = f"FAIL — {exc}"
+                self._root.after(0, lambda: self._claude_status_var.set(msg))
 
         threading.Thread(target=_test, daemon=True).start()
 

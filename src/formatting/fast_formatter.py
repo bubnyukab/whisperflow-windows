@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import re
-import time
-from dataclasses import dataclass
 
 _TERMINAL_PUNCTUATION = frozenset(".!?,;:")
 
@@ -36,24 +34,6 @@ class FastFormatter:
         if text[-1] not in _TERMINAL_PUNCTUATION:
             text += "."
         return text
-
-
-@dataclass
-class FastFormatterResult:
-    """Output from the fast formatter module-level helper."""
-
-    text: str
-    latency_ms: float
-
-
-_formatter = FastFormatter()
-
-
-def format_text(raw: str) -> FastFormatterResult:
-    """Apply FastFormatter rules and return a timed result dataclass."""
-    t0 = time.perf_counter()
-    text = _formatter.format(raw)
-    return FastFormatterResult(text=text, latency_ms=(time.perf_counter() - t0) * 1000)
 
 
 def word_count(text: str) -> int:

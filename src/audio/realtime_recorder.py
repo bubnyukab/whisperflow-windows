@@ -27,9 +27,15 @@ class RealtimeRecorder:
         recorder.shutdown()     # app exit only   → destroy subprocess
     """
 
-    def __init__(self, settings: Settings, on_transcript: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        on_transcript: Callable[[str], None],
+        on_init_failed: Optional[Callable[[str], None]] = None,
+    ) -> None:
         self._settings = settings
         self._on_transcript = on_transcript
+        self._on_init_failed = on_init_failed
         self._recorder: Optional[object] = None
         self._ready = False
         self._lock = threading.Lock()
@@ -67,7 +73,11 @@ class RealtimeRecorder:
                 self._ready = True
             log.debug("RealtimeRecorder ready (model=%s)", self._settings.whisper_model)
         except Exception:
-            log.exception("RealtimeRecorder.initialize failed")
+            log.exception("RealtimeRecorder.initialize failed — recording unavailable")
+            if self._on_init_failed is not None:
+                self._on_init_failed(
+                    "Whisper failed to load — recording unavailable. Check logs for details."
+                )
 
     def shutdown(self) -> None:
         """Destroy the recorder subprocess — call only on app exit."""

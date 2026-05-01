@@ -11,6 +11,9 @@ from src.formatting.ollama_formatter import OllamaFormatter
 
 log = logging.getLogger(__name__)
 
+# Module-level singletons — avoids re-constructing on every transcription.
+_fast_formatter_instance = None
+
 # LocalLLMFormatter loads a ~1 GB GGUF on construction, so we cache the
 # instance across calls. Keyed on the model path so changing the path in
 # settings invalidates the cache; an init failure is sticky-cached too so
@@ -18,6 +21,14 @@ log = logging.getLogger(__name__)
 _local_instance = None
 _local_cached_path: str | None = None
 _local_init_failed: bool = False
+
+
+def _get_fast_formatter() -> FastFormatter:
+    """Return the module-level FastFormatter singleton."""
+    global _fast_formatter_instance
+    if _fast_formatter_instance is None:
+        _fast_formatter_instance = FastFormatter()
+    return _fast_formatter_instance
 
 
 def reset_local_formatter() -> None:
@@ -65,14 +76,14 @@ def create_formatter(
             log.info("Formatter backend: local (%s)", settings.local_model_path)
             return local
         log.warning("Formatter backend: local requested but unavailable; using fast")
-        return FastFormatter()
+        return _get_fast_formatter()
     log.info("Formatter backend: fast")
-    return FastFormatter()
+    return _get_fast_formatter()
 
 
 def format_text(text: str, settings: Settings, context_hint: str = "") -> str:
     """Two-tier formatter: always run FastFormatter, escalate to LLM when warranted."""
-    fast_result = FastFormatter().format(text)
+    fast_result = _get_fast_formatter().format(text)
     word_count = len(text.split())
 
     log.debug("format_text: %d words, backend=%s, threshold=%d",

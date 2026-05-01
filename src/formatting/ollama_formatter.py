@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import logging
-import time
-from dataclasses import dataclass
 
 import httpx
-
-from src.config.settings import Settings
 
 log = logging.getLogger(__name__)
 
@@ -92,60 +88,3 @@ class OllamaFormatter:
             return resp.status_code == 200
         except Exception:
             return False
-
-
-# ---------------------------------------------------------------------------
-# Module-level helpers (kept for backward-compat with existing call sites)
-# ---------------------------------------------------------------------------
-
-_LEGACY_TIMEOUT = httpx.Timeout(10.0, connect=3.0)
-
-
-@dataclass
-class OllamaFormatterResult:
-    """Output from the module-level format_text helper."""
-
-    text: str
-    latency_ms: float
-    model: str
-    success: bool
-
-
-def format_text(raw: str, settings: Settings) -> OllamaFormatterResult:
-    """Thin wrapper around OllamaFormatter for call sites that use Settings."""
-    t0 = time.perf_counter()
-    url = f"{settings.ollama_url}/api/generate"
-    payload = {
-        "model": settings.ollama_model,
-        "prompt": _COMPLETION_PROMPT_TEMPLATE.format(transcript=raw),
-        "stream": False,
-    }
-    try:
-        with httpx.Client(timeout=_LEGACY_TIMEOUT) as client:
-            resp = client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            text = data.get("response", "").strip()
-            elapsed = (time.perf_counter() - t0) * 1000
-            return OllamaFormatterResult(
-                text=text or raw,
-                latency_ms=elapsed,
-                model=settings.ollama_model,
-                success=bool(text),
-            )
-    except Exception:
-        elapsed = (time.perf_counter() - t0) * 1000
-        log.exception("Ollama formatter failed")
-        return OllamaFormatterResult(
-            text=raw, latency_ms=elapsed, model=settings.ollama_model, success=False
-        )
-
-
-def is_ollama_available(base_url: str) -> bool:
-    """Ping the Ollama server and return True if it responds."""
-    try:
-        with httpx.Client(timeout=httpx.Timeout(3.0)) as client:
-            resp = client.get(f"{base_url}/api/tags")
-            return resp.status_code == 200
-    except Exception:
-        return False
