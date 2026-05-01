@@ -174,58 +174,48 @@ def _start_parallel_init(recorder: "RealtimeRecorder", settings: Settings) -> No
 # ---------------------------------------------------------------------------
 
 def _run_first_run_wizard(settings: Settings) -> Settings:
-    """Show a tkinter setup wizard on first launch; returns updated settings."""
+    """Show a simple welcome screen on first launch; returns updated settings."""
     try:
         import tkinter as tk
         from tkinter import ttk
+
+        local_found = Path(settings.local_model_path).exists()
+        backend = "local" if local_found else "fast"
 
         root = tk.Tk()
         root.title("WhisperFlow — First Run Setup")
         root.resizable(False, False)
 
-        ollama_ok = check_ollama(settings.ollama_url)
         result: dict = {"settings": settings}
 
         frame = ttk.Frame(root, padding=20)
         frame.pack(fill="both", expand=True)
 
         ttk.Label(frame, text="Welcome to WhisperFlow!",
-                  font=("Arial", 13, "bold")).pack(pady=(0, 10))
+                  font=("Arial", 13, "bold")).pack(pady=(0, 14))
 
-        if ollama_ok:
-            ttk.Label(frame,
-                      text="Ollama detected — local LLM formatting is available.",
-                      foreground="green").pack()
-            ttk.Label(frame, text="Ollama model:").pack(pady=(10, 0))
-            model_var = tk.StringVar(value=settings.ollama_model)
-            ttk.Combobox(frame, textvariable=model_var,
-                         values=["phi3:mini", "mistral:7b", "llama3.1:8b", "gemma2:9b"],
-                         state="readonly", width=20).pack()
-            ttk.Label(frame,
-                      text=f"\nHotkey: {settings.hotkey}\n"
-                           "(change in Settings → General)",
-                      justify="center").pack(pady=8)
+        # Hotkey field
+        hotkey_row = ttk.Frame(frame)
+        hotkey_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(hotkey_row, text="Hotkey:").pack(side="left")
+        hotkey_var = tk.StringVar(value=settings.hotkey)
+        ttk.Entry(hotkey_row, textvariable=hotkey_var, width=24).pack(side="left", padx=(8, 0))
 
-            def _save_ollama() -> None:
-                result["settings"] = replace(settings, ollama_model=model_var.get())
-                root.destroy()
-
-            ttk.Button(frame, text="Start WhisperFlow", command=_save_ollama).pack(pady=8)
+        # LLM status
+        if local_found:
+            ttk.Label(frame, text="Local LLM found ✓",
+                      foreground="green").pack(pady=(0, 14))
         else:
-            ttk.Label(frame, text="Ollama not detected.", foreground="orange").pack()
-            ttk.Label(frame,
-                      text="Install Ollama from https://ollama.com\n"
-                           "then run:  ollama pull llama3.1:8b\n\n"
-                           "Or continue in Fast-only mode (no LLM formatting).",
-                      justify="center").pack(pady=8)
+            ttk.Label(frame, text="Local LLM not found — using fast formatter",
+                      foreground="orange").pack(pady=(0, 14))
 
-            def _fast_only() -> None:
-                result["settings"] = replace(settings, formatter_backend="fast")
-                root.destroy()
+        def _start() -> None:
+            result["settings"] = replace(settings,
+                                         hotkey=hotkey_var.get(),
+                                         formatter_backend=backend)
+            root.destroy()
 
-            ttk.Button(frame, text="Use Fast-only mode", command=_fast_only).pack(pady=4)
-            ttk.Button(frame, text="I'll set up Ollama later",
-                       command=root.destroy).pack()
+        ttk.Button(frame, text="Start WhisperFlow", command=_start).pack()
 
         root.mainloop()
         return result["settings"]
