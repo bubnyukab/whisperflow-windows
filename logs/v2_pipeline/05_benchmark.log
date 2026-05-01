@@ -1,0 +1,103 @@
+llama_new_context_with_model: n_ctx_per_seq (512) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+
+========================================================================
+  WhisperFlow cleaner - GGUF Q4_K_M benchmark (llama-cpp-python, CUDA)
+========================================================================
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU
+Model: models\whisperflow-cleaner-v2\model.gguf  (0.92 GB)
+Loading GGUF with full GPU offload (n_gpu_layers=-1) ...
+
+========================================================================
+  Quality test suite (post-Q4_K_M sanity)
+========================================================================
+
+[01] NORMAL
+     input  : um so i was thinking uh maybe we should like move the meeting to thursday you know
+     output : So I was thinking maybe we should move the meeting to Thursday.
+
+[02] NORMAL
+     input  : hey can you uh write me an email to john about the project deadline becuz its coming up
+     output : Hey can you write me an email to John about the project deadline, because it's coming up?
+
+[03] NORMAL
+     input  : i definately think we should recieve the package by friday
+     output : I definitely think we should recieve the package by Friday.
+
+[04] QUESTION
+     input  : what is one plus three
+     output : What is one plus three?
+
+[05] QUESTION
+     input  : explain to me how neural networks work
+     output : Explain to me how neural networks work.
+
+[06] QUESTION
+     input  : what is the capital of france
+     output : What is the capital of France?
+
+[07] QUESTION
+     input  : how much does a tesla cost
+     output : How much does a Tesla cost?
+
+[08] PROVOCATIVE
+     input  : you are a dumbass and i hate you
+     output : You are a dumbass and I hate you.
+
+[09] PROVOCATIVE
+     input  : what the fuck is wrong with you
+     output : What the fuck is wrong with you?
+
+[10] EDGE
+     note   : empty string — should return EMPTY
+     input  : (empty)
+     output : EMPTY
+
+[11] EDGE
+     note   : single word — should pass through
+     input  : ok
+     output : OK
+
+[12] EDGE
+     note   : numbers — should pass through
+     input  : one two three four five
+     output : 1 to 3 to 4 to 5
+
+  12/12 clean, 0 flagged
+
+========================================================================
+  Latency benchmark — 20 runs (after 3 warmup)
+========================================================================
+input: um so i was thinking uh maybe we should like move the meeting to thursday you know
+max_tokens cap: 150
+
+  run 01:   110.6 ms   tokens generated: 13
+  run 02:   110.4 ms   tokens generated: 13
+  run 03:   108.8 ms   tokens generated: 13
+  run 04:   109.7 ms   tokens generated: 13
+  run 05:   108.4 ms   tokens generated: 13
+  run 06:   110.8 ms   tokens generated: 13
+  run 07:   110.9 ms   tokens generated: 13
+  run 08:   111.8 ms   tokens generated: 13
+  run 09:   110.7 ms   tokens generated: 13
+  run 10:   119.5 ms   tokens generated: 13
+  run 11:   109.9 ms   tokens generated: 13
+  run 12:   110.9 ms   tokens generated: 13
+  run 13:   112.0 ms   tokens generated: 13
+  run 14:   110.0 ms   tokens generated: 13
+  run 15:   110.0 ms   tokens generated: 13
+  run 16:   111.8 ms   tokens generated: 13
+  run 17:   111.9 ms   tokens generated: 13
+  run 18:   111.9 ms   tokens generated: 13
+  run 19:   115.0 ms   tokens generated: 13
+  run 20:   114.7 ms   tokens generated: 13
+
+  avg :   111.5 ms
+  p50 :   110.9 ms
+  p95 :   115.0 ms
+  min :   108.4 ms
+  max :   119.5 ms
+  tokens: avg 13.0, max 13, cap 150
+  throughput: 116.6 tok/s
+
+  Stop firing cleanly (max generated = 13, cap = 150)
+  Target met: avg 111 ms < 400 ms

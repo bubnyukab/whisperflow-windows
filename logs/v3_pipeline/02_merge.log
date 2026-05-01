@@ -1,0 +1,12 @@
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU  free VRAM: 5.01 GB
+
+Loading base model Qwen/Qwen2.5-1.5B in fp16 ...
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:  15%|#5        | 51/338 [00:00<00:00, 500.02it/s]Loading weights:  32%|###2      | 109/338 [00:00<00:00, 522.30it/s]Loading weights:  48%|####7     | 162/338 [00:00<00:00, 518.82it/s]Loading weights:  64%|######4   | 217/338 [00:00<00:00, 526.75it/s]Loading weights:  80%|#######9  | 270/338 [00:00<00:00, 504.75it/s]Loading weights:  96%|#########6| 325/338 [00:00<00:00, 514.36it/s]Loading weights: 100%|##########| 338/338 [00:00<00:00, 521.57it/s]
+W0430 22:52:12.511000 131712 Lib\site-packages\torch\utils\flop_counter.py:29] triton not found; flop counting will not work for triton kernels
+Attaching adapter from models\whisperflow-cleaner-v3\final ...
+Merging adapter weights into base ...
+Saving merged model to models\whisperflow-cleaner-v3\merged-fp16 ...
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|##########| 1/1 [00:11<00:00, 11.09s/it]Writing model shards: 100%|##########| 1/1 [00:11<00:00, 11.09s/it]
+
+Done. On-disk size: 2.89 GB

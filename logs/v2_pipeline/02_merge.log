@@ -1,0 +1,12 @@
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU  free VRAM: 5.01 GB
+
+Loading base model Qwen/Qwen2.5-1.5B in fp16 ...
+Loading weights:   0%|          | 0/338 [00:00<?, ?it/s]Loading weights:   0%|          | 1/338 [00:01<08:14,  1.47s/it]Loading weights:  33%|###2      | 111/338 [00:01<00:02, 95.53it/s]Loading weights:  47%|####7     | 160/338 [00:02<00:01, 92.90it/s]Loading weights:  57%|#####6    | 191/338 [00:02<00:01, 100.96it/s]Loading weights:  64%|######3   | 215/338 [00:02<00:01, 99.26it/s] Loading weights:  69%|######9   | 234/338 [00:02<00:01, 97.89it/s]Loading weights:  74%|#######3  | 250/338 [00:02<00:00, 104.60it/s]Loading weights:  79%|#######8  | 266/338 [00:03<00:00, 111.02it/s]Loading weights:  83%|########3 | 281/338 [00:03<00:00, 96.82it/s] Loading weights:  89%|########8 | 300/338 [00:03<00:00, 112.86it/s]Loading weights:  93%|#########3| 315/338 [00:03<00:00, 102.91it/s]Loading weights:  97%|#########7| 328/338 [00:03<00:00, 107.07it/s]Loading weights: 100%|##########| 338/338 [00:03<00:00, 91.80it/s] 
+W0430 19:22:06.766000 145692 Lib\site-packages\torch\utils\flop_counter.py:29] triton not found; flop counting will not work for triton kernels
+Attaching adapter from models\whisperflow-cleaner-v2\final ...
+Merging adapter weights into base ...
+Saving merged model to models\whisperflow-cleaner-v2\merged-fp16 ...
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|##########| 1/1 [00:24<00:00, 24.07s/it]Writing model shards: 100%|##########| 1/1 [00:24<00:00, 24.07s/it]
+
+Done. On-disk size: 2.89 GB
