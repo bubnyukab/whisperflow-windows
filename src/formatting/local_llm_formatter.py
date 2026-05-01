@@ -10,25 +10,31 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-# torch must be imported before llama_cpp on Windows. The cu124 prebuilt
-# llama-cpp-python wheel needs cudart64_12.dll, cublas64_12.dll, and
-# nvrtc64_120_0.dll resolved when libllama.dll is loaded; torch's bundled
-# CUDA runtime in torch/lib/ is what provides them. Without this import
-# order, `from llama_cpp import Llama` fails with FileNotFoundError on
-# llama.dll's transitive dependencies.
-try:
-    import torch  # noqa: F401
-except ImportError as _torch_err:
-    raise ImportError(
-        "Install PyTorch from pytorch.org — required for local LLM formatter."
-    ) from _torch_err
-from llama_cpp import Llama
-
 log = logging.getLogger(__name__)
 
 _PROMPT_TEMPLATE = "Input: {text}\nOutput: "
 _STOP = ["\n"]
 _MAX_TOKENS = 200
+
+_INSTALL_HINT = (
+    "llama-cpp-python is not installed. Run:\n"
+    "  pip install llama-cpp-python==0.3.4 "
+    "--extra-index-url https://huggingface.github.io/llama-cpp-python/whl/cu124"
+)
+
+
+def _load_llama_class():
+    """Import torch then llama_cpp, raising RuntimeError with install hint if missing.
+
+    torch must be imported first on Windows so its bundled CUDA DLLs are in the
+    loader search path before libllama.dll tries to resolve cudart64_12.dll etc.
+    """
+    try:
+        import torch  # noqa: F401  # must precede llama_cpp on Windows
+        from llama_cpp import Llama
+        return Llama
+    except ImportError as exc:
+        raise RuntimeError(_INSTALL_HINT) from exc
 
 
 class LocalLLMFormatter:
@@ -45,8 +51,11 @@ class LocalLLMFormatter:
     ) -> None:
         path = Path(model_path)
         if not path.exists():
-            log.error("GGUF model not found: %s — local backend disabled for this session", path)
-            raise FileNotFoundError(f"GGUF model not found: {path}")
+            raise FileNotFoundError(
+                f"Local model not found at {path}. "
+                "Run tools/finetune.py to train the model first."
+            )
+        Llama = _load_llama_class()
         log.info("Loading GGUF cleaner from %s", path)
         self._model_path = path
         self._llm = Llama(
