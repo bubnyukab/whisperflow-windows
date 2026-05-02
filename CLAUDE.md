@@ -4,16 +4,14 @@
 A Windows desktop app that replicates Wispr Flow:
 - Hold a hotkey to record voice
 - Transcribe locally with faster-whisper via RealtimeSTT (no internet, no account)
-- Format the transcript with a local LLM via Ollama (free, no account)
-  OR optionally via Claude API (paid, best quality)
+- Format the transcript with a fine-tuned local GGUF model (fast, private, free)
 - Inject the result into the currently focused application via clipboard
 
 Target latency: <700ms end-to-end on GPU, <1.5s on CPU-only machines.
 
 ## Core Principles
-1. **100% free by default** — Ollama + Whisper, no accounts, no API keys required
-2. **Privacy first** — audio never leaves the machine; transcript only leaves
-   if Claude API formatter is explicitly enabled by the user
+1. **100% free, no accounts** — local Whisper + local GGUF model, nothing leaves the machine
+2. **Privacy first** — audio and transcripts never leave the machine
 3. **Low latency** — two-tier formatter skips the LLM for short inputs;
    RealtimeSTT transcribes while you speak rather than after
 
@@ -21,14 +19,11 @@ Target latency: <700ms end-to-end on GPU, <1.5s on CPU-only machines.
 - Python 3.12
 - RealtimeSTT (streaming audio + VAD + faster-whisper integration)
 - faster-whisper (CTranslate2 Whisper backend)
-- Ollama (local LLM server — must be installed separately from ollama.com)
-- httpx (Ollama API calls)
-- anthropic SDK (optional Claude API formatter)
 - pynput (global hotkeys and keyboard input)
 - pyperclip (clipboard management)
 - pystray + Pillow (system tray)
 - tkinter (settings UI, Python stdlib — no extra install)
-- python-dotenv (optional API key loading)
+- torch (CUDA DLL loader for llama-cpp-python on Windows)
 - llama-cpp-python (local GGUF inference for fine-tuned formatter)
 - PyInstaller (packaging to .exe)
 
@@ -41,8 +36,8 @@ Target latency: <700ms end-to-end on GPU, <1.5s on CPU-only machines.
 ## Available MCP Servers
 - **Superpowers** — filesystem ops, running scripts, reading logs
 - **Context7** — look up latest docs for RealtimeSTT, faster-whisper,
-  Ollama REST API, anthropic SDK, pystray, pynput. ALWAYS use Context7
-  before writing any library API calls — never rely on memory alone.
+  pystray, pynput. ALWAYS use Context7 before writing any library API
+  calls — never rely on memory alone.
 - **Playwright** — E2E testing the settings UI
 - **GitHub MCP** — create repo, push commits, manage issues and releases
 
@@ -51,17 +46,11 @@ Target latency: <700ms end-to-end on GPU, <1.5s on CPU-only machines.
 # Install Python deps
 .venv\Scripts\pip install -r requirements.txt
 
-# Install llama-cpp-python with CUDA support (optional, for local formatter)
+# Install llama-cpp-python with CUDA support (required for local formatter on GPU)
 .venv\Scripts\pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 llama-cpp-python==0.3.4
 
 # Pre-warm Whisper model (downloads ~75MB on first run for tiny.en)
 .venv\Scripts\python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en')"
-
-# Install and start Ollama (done manually by user outside Python)
-# Download from https://ollama.com then run:
-ollama pull llama3.1:8b     # recommended (4.7GB)
-ollama pull phi3:mini        # lighter option for CPU-only (2.3GB)
-ollama serve                 # start the local API server
 
 # Run in development
 .venv\Scripts\python main.py --dev
@@ -70,7 +59,7 @@ ollama serve                 # start the local API server
 .venv\Scripts\python -m pytest tests/ -v
 
 # Run latency benchmark
-.venv\Scripts\python tools/benchmark.py --model tiny.en --backend ollama
+.venv\Scripts\python tools/benchmark.py --model tiny.en --backend local
 
 # Build executable
 .venv\Scripts\pyinstaller build/build.spec
@@ -81,33 +70,48 @@ ollama serve                 # start the local API server
    and Whisper transcription in one integrated streaming loop. Do not use raw
    sounddevice for the main recording path.
 2. **Two-tier formatter is mandatory** — always run FastFormatter first.
-   Only call Ollama/Claude/Local if word count >= llm_word_threshold (default 10)
-   AND the LLM backend is enabled in settings.
-3. **Whisper model: tiny.en by default** — fastest, accurate enough for short
-   inputs. Preload at startup, not on first keypress.
-4. **Check Ollama at startup** — ping localhost:11434/api/tags on launch.
-   If unreachable, show a tray warning but do not crash — fall back to
-   fast_formatter only.
-5. **Text injection uses clipboard** — save old clipboard content, inject new
+   Only call LocalLLMFormatter if word count >= llm_word_threshold (default 4)
+   AND the backend is "local".
+3. **Whisper model: medium.en by default** — good balance of speed and accuracy.
+   Preload at startup, not on first keypress.
+4. **Text injection uses clipboard** — save old clipboard content, inject new
    text, restore after 500ms. Handle non-text clipboard content gracefully.
-6. **Settings at `~/.whisperflow/config.json`** — never hardcode paths.
-7. **API key (if used) from `.env` only** — never written to config.json.
-8. **Tray app owns the main thread** — all other components are daemon threads.
-9. **Never crash silently** — all exceptions must surface as tray notifications.
+5. **Settings at `~/.whisperflow/config.json`** — never hardcode paths.
+6. **Tray app owns the main thread** — all other components are daemon threads.
+7. **Never crash silently** — all exceptions must surface as tray notifications.
+8. **Local model path** — default is `<project_root>/models/whisperflow-cleaner/model.gguf`.
+   The GGUF file must exist for the "local" backend to activate; missing model
+   falls back to fast formatter silently.
 
 ## Formatter Selection Logic
 ```
 user speaks
 → fast_formatter always runs first (<5ms)
-word count < llm_word_threshold (10)?
+word count < llm_word_threshold (4)?
 → inject fast_formatter result, done
 word count >= threshold?
 → check settings.formatter_backend
-"fast"   → inject fast_formatter result
-"local"  → call local_llm_formatter (GGUF), fallback to fast on error
-"ollama" → call ollama_formatter, fallback to fast on error
-"claude" → call claude_formatter, fallback to fast on error
+"fast"  → inject fast_formatter result
+"local" → call local_llm_formatter (GGUF), fallback to fast on error
 ```
+
+## Settings Dataclass Fields
+| Field | Default | Notes |
+|-------|---------|-------|
+| `whisper_model` | `"medium.en"` | |
+| `hotkey` | `"ctrl+shift+space"` | |
+| `formatter_backend` | `"local"` | `"fast"` or `"local"` |
+| `local_model_path` | `<project>/models/whisperflow-cleaner/model.gguf` | Path |
+| `llm_word_threshold` | `4` | Skip LLM below this word count |
+| `vad_silence_ms` | `400` | |
+| `language` | `"en"` | |
+| `recording_mode` | `"hold"` | `"hold"` or `"toggle"` |
+| `history_max` | `50` | |
+| `models_dir` | `~/.whisperflow/models` | Path, reserved for future use |
+| `log_dir` | `~/.whisperflow/logs` | Path, reserved for future use |
+| `training_pairs_path` | `~/.whisperflow/training_pairs.jsonl` | Path |
+
+Env-var overrides: `HOTKEY`, `WHISPER_MODEL`, `FORMATTER_BACKEND`.
 
 ## Training Mode
 When Training Mode is toggled on from the tray menu:
@@ -123,7 +127,6 @@ When Training Mode is toggled on from the tray menu:
 - Hotkey press to recording start: <50ms
 - Recording end (VAD) to transcript: <200ms GPU / <700ms CPU (tiny.en)
 - Short input formatting (fast path): <5ms
-- Long input formatting (Ollama GPU): <400ms
 - Long input formatting (local GGUF, GPU): ~105ms
 - Text injection: <50ms
 - Total target: <700ms GPU / <1.5s CPU
@@ -136,30 +139,17 @@ When Training Mode is toggled on from the tray menu:
 | medium.en | 1.5GB | 5GB | ~3s | ~300ms |
 | large-v3 | 3GB | 10GB | ~8s | ~600ms |
 
-Default: tiny.en
-
-## Ollama Model Reference
-| Model | Size | RAM | CPU latency | GPU latency |
-|-------|------|-----|-------------|-------------|
-| phi3:mini | 2.3GB | 4GB | ~800ms | ~150ms |
-| mistral:7b | 4.1GB | 8GB | ~1.5s | ~250ms |
-| llama3.1:8b | 4.7GB | 8GB | ~2s | ~350ms |
-| gemma2:9b | 5.5GB | 10GB | ~2.5s | ~400ms |
-
-Default: llama3.1:8b
+Default: medium.en
 
 ## Error Handling
-- Ollama unreachable at startup: warn in tray, fall back to fast_formatter
 - Whisper transcription fails: show tray error, do not inject anything
-- Ollama call fails or times out: fall back to fast_formatter result + tray warning
 - Local GGUF load fails: fall back to fast_formatter (sticky-cached failure state)
-- Claude API fails: fall back to fast_formatter result + tray warning
 - Text injection fails: show floating toast with text for manual copy
 - Never crash silently — always surface errors via tray notification
 
 ## Testing Strategy
 - Unit test fast_formatter with known inputs and expected outputs
-- Unit test ollama_formatter with mocked httpx responses
+- Unit test LocalLLMFormatter load failure → fast fallback path
 - Unit test RealtimeSTT wrapper with mocked audio input
 - Unit test TrainingCollector with real filesystem (tmp_path)
 - Unit test ReviewWindow actions (accept/skip/correct) without rendering GUI
