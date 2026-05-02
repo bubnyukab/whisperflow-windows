@@ -7,7 +7,8 @@ tkinter's own test utilities.' — we test internal widget logic directly.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -19,14 +20,12 @@ from src.tray.settings_ui import SettingsWindow, _BACKEND_VALUES, _BACKENDS
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_window(backend: str = "ollama") -> SettingsWindow:
+def _make_window(backend: str = "local") -> SettingsWindow:
     """Create a SettingsWindow with mocked frame widgets, no display needed."""
     win = SettingsWindow(
         settings=Settings(formatter_backend=backend),
         on_save=lambda s: None,
     )
-    # Inject mock frames that the visibility logic operates on
-    win._ollama_frame = MagicMock()
     win._local_frame = MagicMock()
     backend_label = {v: k for k, v in _BACKEND_VALUES.items()}.get(backend, "Fast only")
     win._backend_var = MagicMock()
@@ -44,83 +43,36 @@ class TestBackendDropdownPresent:
     def test_backend_labels_include_fast_only(self) -> None:
         assert "Fast only" in _BACKENDS
 
-    def test_backend_labels_include_ollama(self) -> None:
-        assert "Ollama (local, free)" in _BACKENDS
+    def test_backend_labels_include_local(self) -> None:
+        assert "Local LLM (fine-tuned)" in _BACKENDS
+
+    def test_backend_labels_do_not_include_ollama(self) -> None:
+        assert "Ollama (local, free)" not in _BACKENDS
 
     def test_backend_values_map_fast_only(self) -> None:
         assert _BACKEND_VALUES["Fast only"] == "fast"
 
-    def test_backend_values_map_ollama(self) -> None:
-        assert _BACKEND_VALUES["Ollama (local, free)"] == "ollama"
+    def test_backend_values_map_local(self) -> None:
+        assert _BACKEND_VALUES["Local LLM (fine-tuned)"] == "local"
+
+    def test_backend_values_no_ollama_key(self) -> None:
+        assert "ollama" not in _BACKEND_VALUES.values()
 
 
 # ---------------------------------------------------------------------------
-# Selecting "Ollama (local, free)" — Ollama section visible, Claude hidden
+# Selecting "Local LLM (fine-tuned)" — local section visible
 # ---------------------------------------------------------------------------
 
-class TestOllamaBackendSelected:
-    def test_ollama_frame_shown(self) -> None:
-        win = _make_window(backend="ollama")
+class TestLocalBackendSelected:
+    def test_local_frame_shown(self) -> None:
+        win = _make_window(backend="local")
         win._refresh_formatter_sections()
-        win._ollama_frame.grid.assert_called_once()
+        win._local_frame.grid.assert_called_once()
 
-    def test_ollama_frame_not_removed_when_ollama_selected(self) -> None:
-        win = _make_window(backend="ollama")
+    def test_local_frame_not_removed_when_local_selected(self) -> None:
+        win = _make_window(backend="local")
         win._refresh_formatter_sections()
-        win._ollama_frame.grid_remove.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Ollama model dropdown present (as a constant, not a widget check)
-# ---------------------------------------------------------------------------
-
-class TestOllamaModelDropdownPresent:
-    def test_ollama_models_list_is_nonempty(self) -> None:
-        from src.tray.settings_ui import _OLLAMA_MODELS
-        assert len(_OLLAMA_MODELS) > 0
-
-    def test_default_ollama_model_in_list(self) -> None:
-        from src.tray.settings_ui import _OLLAMA_MODELS
-        assert Settings().ollama_model in _OLLAMA_MODELS
-
-    def test_phi3_mini_in_list(self) -> None:
-        from src.tray.settings_ui import _OLLAMA_MODELS
-        assert "phi3:mini" in _OLLAMA_MODELS
-
-    def test_llama31_in_list(self) -> None:
-        from src.tray.settings_ui import _OLLAMA_MODELS
-        assert "llama3.1:8b" in _OLLAMA_MODELS
-
-
-# ---------------------------------------------------------------------------
-# "Check connection" button — exists as a callable on the window
-# ---------------------------------------------------------------------------
-
-class TestCheckConnectionButton:
-    def test_check_ollama_connection_method_exists(self) -> None:
-        win = SettingsWindow(settings=Settings(), on_save=lambda s: None)
-        assert callable(getattr(win, "_check_ollama_connection", None))
-
-    def test_check_connection_sets_checking_status(self) -> None:
-        win = _make_window(backend="ollama")
-        win._ollama_url_var = MagicMock()
-        win._ollama_url_var.get.return_value = "http://localhost:11434"
-        win._ollama_status_var = MagicMock()
-        # Patch the background thread so it doesn't actually spawn
-        with patch("threading.Thread"):
-            win._check_ollama_connection()
-        win._ollama_status_var.set.assert_called_once_with("Checking...")
-
-    def test_check_connection_starts_background_thread(self) -> None:
-        win = _make_window(backend="ollama")
-        win._ollama_url_var = MagicMock()
-        win._ollama_url_var.get.return_value = "http://localhost:11434"
-        win._ollama_status_var = MagicMock()
-        with patch("threading.Thread") as mock_thread_cls:
-            mock_thread = MagicMock()
-            mock_thread_cls.return_value = mock_thread
-            win._check_ollama_connection()
-        mock_thread.start.assert_called_once()
+        win._local_frame.grid_remove.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -142,16 +94,15 @@ class TestWindowLifecycle:
         win = SettingsWindow(settings=s, on_save=lambda _: None)
         assert win._settings.hotkey == "ctrl+shift+x"
 
-    def test_fast_backend_hides_both_sections(self) -> None:
+    def test_fast_backend_hides_local_section(self) -> None:
         win = _make_window(backend="fast")
         win._refresh_formatter_sections()
-        win._ollama_frame.grid_remove.assert_called_once()
         win._local_frame.grid_remove.assert_called_once()
 
-    def test_switching_from_ollama_to_fast_hides_ollama(self) -> None:
+    def test_fast_backend_does_not_show_local_section(self) -> None:
         win = _make_window(backend="fast")
         win._refresh_formatter_sections()
-        win._ollama_frame.grid.assert_not_called()
+        win._local_frame.grid.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +115,6 @@ class TestSavePreservesAllFields:
     def _make_save_window(self, settings: Settings) -> tuple[SettingsWindow, list]:
         saved: list = []
         win = SettingsWindow(settings=settings, on_save=lambda s: saved.append(s))
-        win._ollama_frame = MagicMock()
         win._local_frame = MagicMock()
         backend_label = {v: k for k, v in _BACKEND_VALUES.items()}.get(
             settings.formatter_backend, "Fast only"
@@ -179,10 +129,6 @@ class TestSavePreservesAllFields:
         win._mode_var.get.return_value = settings.recording_mode
         win._lang_var = MagicMock()
         win._lang_var.get.return_value = settings.language
-        win._ollama_model_var = MagicMock()
-        win._ollama_model_var.get.return_value = settings.ollama_model
-        win._ollama_url_var = MagicMock()
-        win._ollama_url_var.get.return_value = settings.ollama_url
         win._threshold_var = MagicMock()
         win._threshold_var.get.return_value = settings.llm_word_threshold
         win._vad_var = MagicMock()
@@ -193,7 +139,6 @@ class TestSavePreservesAllFields:
         return win, saved
 
     def test_training_pairs_path_preserved(self) -> None:
-        from pathlib import Path
         custom_path = Path("/custom/training.jsonl")
         s = Settings(training_pairs_path=custom_path)
         win, saved = self._make_save_window(s)
@@ -202,7 +147,6 @@ class TestSavePreservesAllFields:
         assert saved[0].training_pairs_path == custom_path
 
     def test_models_dir_preserved(self) -> None:
-        from pathlib import Path
         custom_dir = Path("/custom/models")
         s = Settings(models_dir=custom_dir)
         win, saved = self._make_save_window(s)
@@ -211,7 +155,6 @@ class TestSavePreservesAllFields:
         assert saved[0].models_dir == custom_dir
 
     def test_log_dir_preserved(self) -> None:
-        from pathlib import Path
         custom_dir = Path("/custom/logs")
         s = Settings(log_dir=custom_dir)
         win, saved = self._make_save_window(s)
@@ -225,10 +168,3 @@ class TestSavePreservesAllFields:
         with patch("src.config.settings.save_settings"):
             win._save()
         assert saved[0].history_max == 99
-
-    def test_ollama_timeout_preserved(self) -> None:
-        s = Settings(ollama_timeout=30.0)
-        win, saved = self._make_save_window(s)
-        with patch("src.config.settings.save_settings"):
-            win._save()
-        assert saved[0].ollama_timeout == 30.0

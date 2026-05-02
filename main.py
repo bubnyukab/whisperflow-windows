@@ -17,7 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from src.injection.text_injector import TextInjector
     from src.audio.realtime_recorder import RealtimeRecorder
 
-from src.config.settings import Settings, check_ollama, load_settings, SETTINGS_PATH
+from src.config.settings import Settings, load_settings, SETTINGS_PATH
 from src.formatting import format_text
 from src.training.collector import TrainingCollector
 
@@ -37,7 +37,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", metavar="MODEL",
                         help="Override Whisper model (tiny.en, base.en, …)")
     parser.add_argument(
-        "--backend", choices=["fast", "ollama", "claude", "local"],
+        "--backend", choices=["fast", "local"],
         help="Override formatter backend",
     )
     return parser.parse_args()
@@ -230,9 +230,6 @@ def _run_first_run_wizard(settings: Settings) -> Settings:
 
 def main() -> None:
     """Startup sequence → wire pipeline → block on tray."""
-    from dotenv import load_dotenv
-    load_dotenv()
-
     # 1. Settings
     config_existed = SETTINGS_PATH.exists()
     args = _parse_args()
@@ -244,16 +241,7 @@ def main() -> None:
     if not config_existed:
         settings = _run_first_run_wizard(settings)
 
-    # 3. Ollama health check
-    ollama_down = (
-        settings.formatter_backend == "ollama"
-        and not check_ollama(settings.ollama_url)
-    )
-    if ollama_down:
-        log.warning("Ollama unreachable at %s — will fall back to fast formatter",
-                    settings.ollama_url)
-
-    # 4. Wire components
+    # 3. Wire components
     from src.tray.tray_app import TrayApp
     from src.injection.text_injector import TextInjector
     from src.audio.realtime_recorder import RealtimeRecorder
@@ -301,18 +289,6 @@ def main() -> None:
 
     # 5. Load Whisper and the local LLM formatter in parallel.
     _start_parallel_init(recorder, settings)
-
-    # Notify about Ollama after tray renders (small delay)
-    if ollama_down:
-        def _warn_ollama() -> None:
-            import time
-            time.sleep(0.8)
-            tray.show_notification(
-                "WhisperFlow",
-                "Ollama is not running — using fast formatter.\n"
-                "Start Ollama with: ollama serve",
-            )
-        threading.Thread(target=_warn_ollama, daemon=True).start()
 
     tray.run()  # blocks main thread
 

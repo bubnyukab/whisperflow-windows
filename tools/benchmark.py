@@ -116,21 +116,15 @@ def run_benchmark(
 
     whisper_timings: list[float] = []
     fast_timings: list[float] = []
-    llm_timings: list[float] | None = [] if backend in ("ollama", "claude") else None
+    llm_timings: list[float] | None = [] if backend == "local" else None
     inject_timings: list[float] = []
 
-    # LLM availability check — skip if backend is fast or if server unreachable
+    # LLM availability check — skip if backend is fast or if model file missing
     llm_available = False
-    if backend == "ollama":
-        from src.config.settings import check_ollama
-        llm_available = check_ollama(settings.ollama_url)
+    if backend == "local":
+        llm_available = settings.local_model_path.exists()
         if not llm_available:
-            print(f"  [Ollama] not reachable at {settings.ollama_url} — LLM stage skipped")
-            llm_timings = None
-    elif backend == "claude":
-        llm_available = bool(settings.anthropic_api_key)
-        if not llm_available:
-            print("  [Claude] no API key — LLM stage skipped")
+            print(f"  [Local LLM] model not found at {settings.local_model_path} — LLM stage skipped")
             llm_timings = None
 
     for i in range(iterations):
@@ -146,14 +140,9 @@ def run_benchmark(
 
         # Stage 3 — LLM formatter (optional)
         if llm_available and llm_timings is not None:
-            if backend == "ollama":
-                from src.formatting.ollama_formatter import OllamaFormatter
-                llm = OllamaFormatter(settings.ollama_url, settings.ollama_model)
-                _, l_ms = _time_ms(lambda: llm.format(text))
-            else:
-                from src.formatting.claude_formatter import ClaudeFormatter
-                llm = ClaudeFormatter(settings.anthropic_api_key)
-                _, l_ms = _time_ms(lambda: llm.format(text))
+            from src.formatting.local_llm_formatter import LocalLLMFormatter
+            llm = LocalLLMFormatter(settings.local_model_path)
+            _, l_ms = _time_ms(lambda: llm.format(text))
             llm_timings.append(l_ms)
 
         # Stage 4 — Text injection
@@ -194,7 +183,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default="tiny.en",
                         help="Whisper model (tiny.en, base.en, medium.en, large-v3)")
     parser.add_argument("--backend", default="fast",
-                        choices=["fast", "ollama", "claude"],
+                        choices=["fast", "local"],
                         help="Formatter backend")
     parser.add_argument("--iterations", type=int, default=5,
                         help="Number of benchmark iterations")

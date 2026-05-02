@@ -148,9 +148,6 @@ class TestBenchmarkParseArgs:
     def test_backend_default_is_fast(self) -> None:
         assert self._parse([]).backend == "fast"
 
-    def test_backend_override_ollama(self) -> None:
-        assert self._parse(["--backend", "ollama"]).backend == "ollama"
-
     def test_iterations_default_is_5(self) -> None:
         assert self._parse([]).iterations == 5
 

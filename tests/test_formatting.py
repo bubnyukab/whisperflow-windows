@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from src.config.settings import Settings
 from src.formatting import create_formatter
 from src.formatting import format_text as router_format_text
 from src.formatting.fast_formatter import FastFormatter, word_count
-from src.formatting.ollama_formatter import OllamaFormatter
 
 
 class TestFastFormatter:
@@ -110,120 +110,6 @@ class TestFastFormatterClass:
         assert (_time.perf_counter() - t0) * 1000 < 5.0
 
 
-class TestOllamaFormatterClass:
-    """Tests for the OllamaFormatter class (mocked httpx.post)."""
-
-    def _ok_response(self, text: str) -> MagicMock:
-        resp = MagicMock()
-        resp.json.return_value = {"response": text, "done": True}
-        resp.raise_for_status = MagicMock()
-        return resp
-
-    def test_happy_path_returns_formatted_text(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=self._ok_response("Send an email to John.")):
-            assert fmt.format("send email to john") == "Send an email to John."
-
-    def test_timeout_returns_raw_transcript(self) -> None:
-        import httpx as _httpx
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", side_effect=_httpx.TimeoutException("timeout")):
-            assert fmt.format("send email to john") == "send email to john"
-
-    def test_connection_error_returns_raw_transcript(self) -> None:
-        import httpx as _httpx
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", side_effect=_httpx.ConnectError("refused")):
-            assert fmt.format("send email to john") == "send email to john"
-
-    def test_unexpected_exception_returns_raw_transcript(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", side_effect=RuntimeError("oops")):
-            assert fmt.format("raw text") == "raw text"
-
-    def test_payload_uses_completion_prompt_not_chat_format(self) -> None:
-        """OllamaFormatter posts a 'prompt' completion, never chat 'system'/'messages'."""
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
-            fmt.format("some text")
-        body = mock_post.call_args.kwargs["json"]
-        assert "prompt" in body
-        assert "system" not in body
-        assert "messages" not in body
-
-    def test_prompt_contains_raw_transcript_in_completion_template(self) -> None:
-        """The transcript is interpolated into the Input:/Output: completion template."""
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
-            fmt.format("send email to john")
-        prompt = mock_post.call_args.kwargs["json"]["prompt"]
-        assert "Input: send email to john" in prompt
-        assert prompt.rstrip().endswith("Output:")
-
-    def test_posts_to_api_generate_endpoint(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
-            fmt.format("test")
-        assert mock_post.call_args.args[0] == "http://localhost:11434/api/generate"
-
-    def test_stream_is_false_in_payload(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
-            fmt.format("test")
-        assert mock_post.call_args.kwargs["json"]["stream"] is False
-
-    def test_configured_timeout_passed_to_httpx(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b", timeout=5.0)
-        with patch("httpx.post", return_value=self._ok_response("ok")) as mock_post:
-            fmt.format("test")
-        assert mock_post.call_args.kwargs["timeout"] == 5.0
-
-    def test_strips_whitespace_from_response(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=self._ok_response("  Formatted.  \n")):
-            assert fmt.format("raw") == "Formatted."
-
-    def test_is_available_true_on_200(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.get", return_value=MagicMock(status_code=200)):
-            assert fmt.is_available() is True
-
-    def test_is_available_false_on_connect_error(self) -> None:
-        import httpx as _httpx
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.get", side_effect=_httpx.ConnectError("refused")):
-            assert fmt.is_available() is False
-
-    def test_is_available_false_on_non_200(self) -> None:
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.get", return_value=MagicMock(status_code=503)):
-            assert fmt.is_available() is False
-
-
-class TestOllamaFormatter:
-    """Tests for the Ollama formatter with mocked httpx."""
-
-    def test_success_path(self) -> None:
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"response": "Hello world."}
-        mock_resp.raise_for_status = MagicMock()
-
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", return_value=mock_resp):
-            result = fmt.format("hello world")
-
-        assert result == "Hello world."
-
-    def test_connection_error_falls_back(self) -> None:
-        import httpx as _httpx
-
-        fmt = OllamaFormatter(url="http://localhost:11434", model="llama3.1:8b")
-        with patch("httpx.post", side_effect=_httpx.ConnectError("refused")):
-            result = fmt.format("hello world")
-
-        assert result == "hello world"
-
-
 class TestCreateFormatter:
     """Tests for the create_formatter router function."""
 
@@ -231,25 +117,20 @@ class TestCreateFormatter:
         settings = Settings(formatter_backend="fast")
         assert isinstance(create_formatter(settings), FastFormatter)
 
-    def test_ollama_backend_returns_ollama_formatter(self) -> None:
-        settings = Settings(formatter_backend="ollama")
-        fmt = create_formatter(settings)
-        assert isinstance(fmt, OllamaFormatter)
+    def test_unknown_backend_falls_back_to_fast(self) -> None:
+        settings = Settings(formatter_backend="unknown")
+        assert isinstance(create_formatter(settings), FastFormatter)
 
-    def test_ollama_formatter_uses_settings_url(self) -> None:
-        settings = Settings(formatter_backend="ollama", ollama_url="http://myhost:11434")
+    def test_local_backend_missing_model_falls_back_to_fast(self) -> None:
+        from src.formatting import reset_local_formatter
+        reset_local_formatter()
+        settings = Settings(
+            formatter_backend="local",
+            local_model_path=Path("/nonexistent/model.gguf"),
+        )
         fmt = create_formatter(settings)
-        assert fmt._url == "http://myhost:11434"
+        assert isinstance(fmt, FastFormatter)
 
-    def test_ollama_formatter_uses_settings_model(self) -> None:
-        settings = Settings(formatter_backend="ollama", ollama_model="phi3:mini")
-        fmt = create_formatter(settings)
-        assert fmt._model == "phi3:mini"
-
-    def test_ollama_formatter_uses_settings_timeout(self) -> None:
-        settings = Settings(formatter_backend="ollama", ollama_timeout=5.0)
-        fmt = create_formatter(settings)
-        assert fmt._timeout == 5.0
 
 class TestRouterFormatText:
     """Tests for the two-tier format_text router."""
@@ -261,25 +142,25 @@ class TestRouterFormatText:
         return " ".join(["word"] * threshold)
 
     def test_short_input_returns_fast_result(self) -> None:
-        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        settings = Settings(formatter_backend="local", llm_word_threshold=10)
         result = router_format_text(self._short_text(), settings)
         assert isinstance(result, str)
         assert result != ""
 
     def test_short_input_never_calls_llm(self) -> None:
-        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
-        with patch("src.formatting.OllamaFormatter") as mock_cls:
+        settings = Settings(formatter_backend="local", llm_word_threshold=10)
+        with patch("src.formatting.create_formatter") as mock_create:
             router_format_text(self._short_text(), settings)
-        mock_cls.return_value.format.assert_not_called()
+        mock_create.assert_not_called()
 
     def test_fast_backend_never_calls_llm_regardless_of_length(self) -> None:
         settings = Settings(formatter_backend="fast", llm_word_threshold=10)
-        with patch("src.formatting.OllamaFormatter") as mock_cls:
+        with patch("src.formatting.create_formatter") as mock_create:
             router_format_text(self._long_text(), settings)
-        mock_cls.return_value.format.assert_not_called()
+        mock_create.assert_not_called()
 
-    def test_long_input_ollama_backend_calls_llm(self) -> None:
-        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+    def test_long_input_local_backend_calls_llm(self) -> None:
+        settings = Settings(formatter_backend="local", llm_word_threshold=10)
         mock_fmt = MagicMock()
         mock_fmt.format.return_value = "LLM result."
         with patch("src.formatting.create_formatter", return_value=mock_fmt):
@@ -288,7 +169,7 @@ class TestRouterFormatText:
         assert result == "LLM result."
 
     def test_llm_empty_response_falls_back_to_fast(self) -> None:
-        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        settings = Settings(formatter_backend="local", llm_word_threshold=10)
         mock_fmt = MagicMock()
         mock_fmt.format.return_value = ""
         with patch("src.formatting.create_formatter", return_value=mock_fmt):
@@ -296,7 +177,7 @@ class TestRouterFormatText:
         assert result != ""
 
     def test_context_hint_passed_to_llm(self) -> None:
-        settings = Settings(formatter_backend="ollama", llm_word_threshold=10)
+        settings = Settings(formatter_backend="local", llm_word_threshold=10)
         mock_fmt = MagicMock()
         mock_fmt.format.return_value = "ok"
         with patch("src.formatting.create_formatter", return_value=mock_fmt):
@@ -304,7 +185,7 @@ class TestRouterFormatText:
         mock_fmt.format.assert_called_once_with(self._long_text(), "email")
 
     def test_exact_threshold_triggers_llm(self) -> None:
-        settings = Settings(formatter_backend="ollama", llm_word_threshold=5)
+        settings = Settings(formatter_backend="local", llm_word_threshold=5)
         text = " ".join(["word"] * 5)
         mock_fmt = MagicMock()
         mock_fmt.format.return_value = "ok"
@@ -313,7 +194,7 @@ class TestRouterFormatText:
         mock_fmt.format.assert_called_once()
 
     def test_one_below_threshold_skips_llm(self) -> None:
-        settings = Settings(formatter_backend="ollama", llm_word_threshold=5)
+        settings = Settings(formatter_backend="local", llm_word_threshold=5)
         text = " ".join(["word"] * 4)
         mock_fmt = MagicMock()
         with patch("src.formatting.create_formatter", return_value=mock_fmt):

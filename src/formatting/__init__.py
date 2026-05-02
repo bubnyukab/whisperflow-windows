@@ -5,9 +5,7 @@ from __future__ import annotations
 import logging
 
 from src.config.settings import Settings
-from src.formatting.claude_formatter import ClaudeFormatter
 from src.formatting.fast_formatter import FastFormatter
-from src.formatting.ollama_formatter import OllamaFormatter
 
 log = logging.getLogger(__name__)
 
@@ -64,12 +62,6 @@ def create_formatter(
 ):
     """Return the formatter instance for the configured backend."""
     backend = settings.formatter_backend
-    if backend == "ollama":
-        log.info("Formatter backend: ollama (%s @ %s)", settings.ollama_model, settings.ollama_url)
-        return OllamaFormatter(settings.ollama_url, settings.ollama_model, settings.ollama_timeout)
-    if backend == "claude":
-        log.info("Formatter backend: claude")
-        return ClaudeFormatter(settings.anthropic_api_key)
     if backend == "local":
         local = _get_local_formatter(settings)
         if local is not None:

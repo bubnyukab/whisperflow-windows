@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.config.settings import Settings, check_ollama, load_settings, save_settings
+from src.config.settings import Settings, load_settings, save_settings
 
 
 class TestSettingsDefaults:
@@ -21,15 +21,6 @@ class TestSettingsDefaults:
 
     def test_formatter_backend(self) -> None:
         assert Settings().formatter_backend == "local"
-
-    def test_ollama_model(self) -> None:
-        assert Settings().ollama_model == "phi3:mini"
-
-    def test_ollama_url(self) -> None:
-        assert Settings().ollama_url == "http://localhost:11434"
-
-    def test_ollama_timeout(self) -> None:
-        assert Settings().ollama_timeout == 15.0
 
     def test_llm_word_threshold(self) -> None:
         assert Settings().llm_word_threshold == 4
@@ -150,35 +141,3 @@ class TestSaveSettings:
         assert loaded.history_max == 100
 
 
-class TestCheckOllama:
-    def test_returns_true_when_reachable(self) -> None:
-        with patch("httpx.get") as mock_get:
-            mock_get.return_value = MagicMock(status_code=200)
-            assert check_ollama("http://localhost:11434") is True
-
-    def test_calls_api_tags_endpoint(self) -> None:
-        with patch("httpx.get") as mock_get:
-            mock_get.return_value = MagicMock(status_code=200)
-            check_ollama("http://localhost:11434")
-        mock_get.assert_called_once_with("http://localhost:11434/api/tags", timeout=2.0)
-
-    def test_returns_false_on_connect_error(self) -> None:
-        import httpx as _httpx
-        with patch("httpx.get", side_effect=_httpx.ConnectError("refused")):
-            assert check_ollama("http://localhost:11434") is False
-
-    def test_returns_false_on_timeout(self) -> None:
-        import httpx as _httpx
-        with patch("httpx.get", side_effect=_httpx.TimeoutException("timeout")):
-            assert check_ollama("http://localhost:11434") is False
-
-    def test_never_raises_on_unexpected_exception(self) -> None:
-        with patch("httpx.get", side_effect=RuntimeError("unexpected")):
-            assert check_ollama("http://localhost:11434") is False
-
-    def test_uses_two_second_timeout(self) -> None:
-        with patch("httpx.get") as mock_get:
-            mock_get.return_value = MagicMock(status_code=200)
-            check_ollama("http://custom:9999")
-        _, kwargs = mock_get.call_args
-        assert kwargs.get("timeout") == 2.0

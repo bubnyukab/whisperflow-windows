@@ -9,20 +9,18 @@ from pathlib import Path
 from tkinter import ttk
 from typing import Callable
 
-from src.config.settings import Settings, check_ollama, save_settings
+from src.config.settings import Settings, save_settings
 
 log = logging.getLogger(__name__)
 
 _WHISPER_MODELS = ["tiny.en", "base.en", "medium.en", "large-v3"]
-_OLLAMA_MODELS = ["phi3:mini", "mistral:7b", "llama3.1:8b", "gemma2:9b"]
 _LANGUAGES = ["auto", "en", "de", "fr", "es", "it", "pt", "zh", "ja", "ko", "ru"]
-_BACKENDS = ["Fast only", "Local LLM (fine-tuned)", "Ollama (local, free)"]
+_BACKENDS = ["Fast only", "Local LLM (fine-tuned)"]
 
 # Map display name → internal value
 _BACKEND_VALUES = {
     "Fast only": "fast",
     "Local LLM (fine-tuned)": "local",
-    "Ollama (local, free)": "ollama",
 }
 _BACKEND_LABELS = {v: k for k, v in _BACKEND_VALUES.items()}
 
@@ -117,33 +115,6 @@ class SettingsWindow:
         ).grid(row=0, column=1, sticky="ew", **pad)
         self._backend_var.trace_add("write", lambda *_: self._refresh_formatter_sections())
 
-        # --- Ollama section ---
-        self._ollama_frame = ttk.LabelFrame(frame, text="Ollama settings", padding=8)
-        self._ollama_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
-                                padx=6, pady=(8, 4))
-
-        ttk.Label(self._ollama_frame, text="URL:").grid(row=0, column=0, sticky="w", padx=4, pady=3)
-        self._ollama_url_var = tk.StringVar(value=self._settings.ollama_url)
-        ttk.Entry(self._ollama_frame, textvariable=self._ollama_url_var, width=30).grid(
-            row=0, column=1, columnspan=2, sticky="ew", padx=4, pady=3
-        )
-
-        ttk.Label(self._ollama_frame, text="Model:").grid(row=1, column=0, sticky="w", padx=4, pady=3)
-        self._ollama_model_var = tk.StringVar(value=self._settings.ollama_model)
-        ttk.Combobox(
-            self._ollama_frame, textvariable=self._ollama_model_var,
-            values=_OLLAMA_MODELS, state="readonly", width=20,
-        ).grid(row=1, column=1, sticky="w", padx=4, pady=3)
-
-        self._ollama_status_var = tk.StringVar(value="")
-        ttk.Label(self._ollama_frame, textvariable=self._ollama_status_var).grid(
-            row=2, column=1, sticky="w", padx=4, pady=2
-        )
-        ttk.Button(
-            self._ollama_frame, text="Check connection",
-            command=self._check_ollama_connection,
-        ).grid(row=2, column=0, sticky="w", padx=4, pady=3)
-
         # --- Local LLM section ---
         self._local_frame = ttk.LabelFrame(frame, text="Local LLM settings", padding=8)
         self._local_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
@@ -214,14 +185,9 @@ class SettingsWindow:
     def _refresh_formatter_sections(self) -> None:
         backend_label = self._backend_var.get()
         backend = _BACKEND_VALUES.get(backend_label, "fast")
-        if backend == "ollama":
-            self._ollama_frame.grid()
-            self._local_frame.grid_remove()
-        elif backend == "local":
-            self._ollama_frame.grid_remove()
+        if backend == "local":
             self._local_frame.grid()
         else:
-            self._ollama_frame.grid_remove()
             self._local_frame.grid_remove()
 
     def _update_latency_label(self) -> None:
@@ -232,20 +198,6 @@ class SettingsWindow:
     # ------------------------------------------------------------------
     # Button callbacks
     # ------------------------------------------------------------------
-
-    def _check_ollama_connection(self) -> None:
-        self._ollama_status_var.set("Checking...")
-
-        def _check() -> None:
-            import time
-            url = self._ollama_url_var.get()
-            t0 = time.perf_counter()
-            ok = check_ollama(url)
-            ms = int((time.perf_counter() - t0) * 1000)
-            msg = f"OK ({ms}ms)" if ok else "FAIL — Ollama not reachable"
-            self._root.after(0, lambda: self._ollama_status_var.set(msg))
-
-        threading.Thread(target=_check, daemon=True).start()
 
     def _test_mic(self) -> None:
         if hasattr(self, "_mic_result_var"):
@@ -308,9 +260,6 @@ class SettingsWindow:
             recording_mode=self._mode_var.get() if hasattr(self, "_mode_var") else self._settings.recording_mode,
             language=self._lang_var.get() if hasattr(self, "_lang_var") else self._settings.language,
             formatter_backend=backend,
-            ollama_model=self._ollama_model_var.get() if hasattr(self, "_ollama_model_var") else self._settings.ollama_model,
-            ollama_url=self._ollama_url_var.get() if hasattr(self, "_ollama_url_var") else self._settings.ollama_url,
-            ollama_timeout=self._settings.ollama_timeout,
             llm_word_threshold=self._threshold_var.get() if hasattr(self, "_threshold_var") else self._settings.llm_word_threshold,
             vad_silence_ms=self._vad_var.get() if hasattr(self, "_vad_var") else self._settings.vad_silence_ms,
             local_model_path=Path(self._local_model_path_var.get()) if hasattr(self, "_local_model_path_var") else self._settings.local_model_path,

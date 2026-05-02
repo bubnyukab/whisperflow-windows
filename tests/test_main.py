@@ -43,9 +43,6 @@ class TestParseArgs:
     def test_backend_fast_override(self) -> None:
         assert _parse(["--backend", "fast"]).backend == "fast"
 
-    def test_backend_ollama_override(self) -> None:
-        assert _parse(["--backend", "ollama"]).backend == "ollama"
-
 
 # ---------------------------------------------------------------------------
 # _apply_cli_overrides

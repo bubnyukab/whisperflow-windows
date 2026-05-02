@@ -1,4 +1,4 @@
-"""Application settings — loaded from ~/.whisperflow/config.json, API key from .env."""
+"""Application settings — loaded from ~/.whisperflow/config.json."""
 
 from __future__ import annotations
 
@@ -10,22 +10,17 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-import httpx
-from dotenv import load_dotenv
-
 SETTINGS_PATH = Path.home() / ".whisperflow" / "config.json"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 _PATH_FIELDS = {"models_dir", "log_dir", "local_model_path", "training_pairs_path"}
 
-# Env vars that override the corresponding Settings fields (lower priority than config.json is
-# intentionally reversed here: env vars win over config.json so the user can override without
-# editing the file — same semantics as ANTHROPIC_API_KEY).
+# Env vars that override the corresponding Settings fields so the user can
+# override without editing config.json.
 _ENV_FIELD_MAP: dict[str, str] = {
     "HOTKEY": "hotkey",
     "WHISPER_MODEL": "whisper_model",
     "FORMATTER_BACKEND": "formatter_backend",
-    "OLLAMA_MODEL": "ollama_model",
 }
 
 
@@ -35,11 +30,7 @@ class Settings:
 
     whisper_model: str = "medium.en"
     hotkey: str = "ctrl+shift+space"
-    formatter_backend: str = "local"     # "fast" | "ollama" | "claude" | "local"
-    ollama_model: str = "phi3:mini"
-    ollama_url: str = "http://localhost:11434"
-    ollama_timeout: float = 15.0
-    anthropic_api_key: str = ""          # populated at runtime from env, never stored
+    formatter_backend: str = "local"     # "fast" | "local"
     local_model_path: Path = field(
         default_factory=lambda: _PROJECT_ROOT / "models" / "whisperflow-cleaner" / "model.gguf"
     )
@@ -56,7 +47,7 @@ class Settings:
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:
-    """Overlay HOTKEY / WHISPER_MODEL / FORMATTER_BACKEND / OLLAMA_MODEL from environment."""
+    """Overlay HOTKEY / WHISPER_MODEL / FORMATTER_BACKEND from environment."""
     overrides: dict = {}
     for env_var, field_name in _ENV_FIELD_MAP.items():
         val = os.getenv(env_var)
@@ -66,46 +57,35 @@ def _apply_env_overrides(settings: Settings) -> Settings:
 
 
 def load_settings() -> Settings:
-    """Read ~/.whisperflow/config.json; env vars overlay config; API key from env only."""
-    load_dotenv(override=False)
-
+    """Read ~/.whisperflow/config.json; env vars overlay config."""
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
     defaults = Settings()
 
     if not SETTINGS_PATH.exists():
         save_settings(defaults)
-        return _apply_env_overrides(Settings(anthropic_api_key=api_key))
+        return _apply_env_overrides(defaults)
 
     try:
         data = json.loads(SETTINGS_PATH.read_text())
-        valid = {f.name for f in fields(Settings) if f.name != "anthropic_api_key"}
+        valid = {f.name for f in fields(Settings)}
         filtered: dict = {k: v for k, v in data.items() if k in valid}
         for name in _PATH_FIELDS:
             if name in filtered:
                 filtered[name] = Path(filtered[name])
-        return _apply_env_overrides(Settings(**filtered, anthropic_api_key=api_key))
+        return _apply_env_overrides(Settings(**filtered))
     except Exception:
         log.warning("Failed to parse %s — falling back to defaults", SETTINGS_PATH, exc_info=True)
-        return _apply_env_overrides(Settings(anthropic_api_key=api_key))
+        return _apply_env_overrides(defaults)
 
 
 def save_settings(settings: Settings) -> None:
-    """Write settings to config.json, excluding anthropic_api_key."""
+    """Write settings to config.json."""
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     raw = asdict(settings)
-    raw.pop("anthropic_api_key", None)
     for name in _PATH_FIELDS:
         if name in raw:
             raw[name] = str(raw[name])
     SETTINGS_PATH.write_text(json.dumps(raw, indent=2))
 
 
-def check_ollama(url: str) -> bool:
-    """Return True if Ollama is reachable at {url}/api/tags; never raises."""
-    try:
-        resp = httpx.get(f"{url}/api/tags", timeout=2.0)
-        return resp.status_code == 200
-    except Exception:
-        return False
