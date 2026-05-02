@@ -15,14 +15,10 @@ log = logging.getLogger(__name__)
 
 _WHISPER_MODELS = ["tiny.en", "base.en", "medium.en", "large-v3"]
 _LANGUAGES = ["auto", "en", "de", "fr", "es", "it", "pt", "zh", "ja", "ko", "ru"]
-_BACKENDS = ["Fast only", "Local LLM (fine-tuned)"]
-
-# Map display name → internal value
-_BACKEND_VALUES = {
-    "Fast only": "fast",
-    "Local LLM (fine-tuned)": "local",
-}
-_BACKEND_LABELS = {v: k for k, v in _BACKEND_VALUES.items()}
+_BACKEND_OPTIONS = [
+    ("fast",  "Fast only",              "< 5ms  — rule-based cleanup, always available"),
+    ("local", "Local LLM (fine-tuned)", "~105ms GPU — fine-tuned Qwen2.5-1.5B"),
+]
 
 # Estimated latency strings shown in Advanced tab
 _LATENCY_HINTS: dict[str, str] = {
@@ -47,7 +43,7 @@ class SettingsWindow:
         self._win = tk.Toplevel(self._root)
         self._win.title("WhisperFlow Settings")
         self._win.resizable(False, False)
-        self._win.protocol("WM_DELETE_WINDOW", self._root.destroy)
+        self._win.protocol("WM_DELETE_WINDOW", self._cancel)
         self._win.lift()
         self._win.focus_force()
         self._build_ui()
@@ -73,19 +69,32 @@ class SettingsWindow:
         notebook.add(advanced_frame, text="Advanced")
         self._build_advanced_tab(advanced_frame)
 
+        status_frame = ttk.Frame(notebook, padding=12)
+        notebook.add(status_frame, text="Status")
+        self._build_status_tab(status_frame)
+
+        self._status_var = tk.StringVar(master=self._root, value="")
+        status_bar = ttk.Label(self._win, textvariable=self._status_var,
+                               foreground="gray", padding=(12, 4))
+        status_bar.pack(fill="x")
+
         btn_frame = ttk.Frame(self._win, padding=(12, 4, 12, 12))
         btn_frame.pack(fill="x")
         ttk.Button(btn_frame, text="Save", command=self._save).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Apply", command=self._apply).pack(side="left", padx=4)
         ttk.Button(btn_frame, text="Test mic", command=self._test_mic).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Cancel", command=self._cancel).pack(side="right", padx=4)
 
     def _build_general_tab(self, frame: ttk.Frame) -> None:
         pad = {"padx": 6, "pady": 4}
 
         ttk.Label(frame, text="Hotkey:").grid(row=0, column=0, sticky="w", **pad)
         self._hotkey_var = tk.StringVar(value=self._settings.hotkey)
-        ttk.Entry(frame, textvariable=self._hotkey_var, width=26).grid(
-            row=0, column=1, columnspan=2, sticky="ew", **pad
+        ttk.Entry(frame, textvariable=self._hotkey_var, state="readonly", width=20).grid(
+            row=0, column=1, sticky="ew", **pad
         )
+        self._record_btn = ttk.Button(frame, text="Record…", command=self._start_hotkey_capture)
+        self._record_btn.grid(row=0, column=2, sticky="w", **pad)
 
         ttk.Label(frame, text="Recording mode:").grid(row=1, column=0, sticky="w", **pad)
         self._mode_var = tk.StringVar(value=self._settings.recording_mode)
@@ -106,45 +115,66 @@ class SettingsWindow:
     def _build_formatter_tab(self, frame: ttk.Frame) -> None:
         pad = {"padx": 6, "pady": 4}
 
-        ttk.Label(frame, text="Backend:").grid(row=0, column=0, sticky="w", **pad)
-        initial_label = _BACKEND_LABELS.get(self._settings.formatter_backend, "Fast only")
-        self._backend_var = tk.StringVar(value=initial_label)
-        ttk.Combobox(
-            frame, textvariable=self._backend_var, values=_BACKENDS,
-            state="readonly", width=24,
-        ).grid(row=0, column=1, sticky="ew", **pad)
-        self._backend_var.trace_add("write", lambda *_: self._refresh_formatter_sections())
+        self._backend_var = tk.StringVar(
+            master=self._root, value=self._settings.formatter_backend
+        )
+
+        for i, (value, label, hint) in enumerate(_BACKEND_OPTIONS):
+            base_row = i * 2
+            ttk.Radiobutton(
+                frame, text=label, variable=self._backend_var,
+                value=value, command=self._refresh_formatter_sections,
+            ).grid(row=base_row, column=0, columnspan=2, sticky="w", **pad)
+            ttk.Label(frame, text=hint, foreground="gray").grid(
+                row=base_row + 1, column=1, sticky="w", padx=(24, 6), pady=(0, 4)
+            )
 
         # --- Local LLM section ---
         self._local_frame = ttk.LabelFrame(frame, text="Local LLM settings", padding=8)
-        self._local_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
-                               padx=6, pady=(8, 4))
+        self._local_frame.grid(row=len(_BACKEND_OPTIONS) * 2, column=0, columnspan=2,
+                               sticky="ew", padx=6, pady=(8, 4))
 
         ttk.Label(self._local_frame, text="Model path:").grid(
-            row=0, column=0, sticky="w", padx=4, pady=3
+            row=0, column=0, sticky="nw", padx=4, pady=3
         )
         self._local_model_path_var = tk.StringVar(value=str(self._settings.local_model_path))
-        ttk.Label(
-            self._local_frame, textvariable=self._local_model_path_var,
-            wraplength=240, justify="left",
-        ).grid(row=0, column=1, sticky="ew", padx=4, pady=3)
+        self._model_name_var = tk.StringVar(master=self._root)
+        self._model_dir_var  = tk.StringVar(master=self._root)
+        path_cell = ttk.Frame(self._local_frame)
+        path_cell.grid(row=0, column=1, sticky="ew", padx=4, pady=3)
+        ttk.Label(path_cell, textvariable=self._model_name_var).pack(anchor="w")
+        ttk.Label(path_cell, textvariable=self._model_dir_var,
+                  foreground="gray", wraplength=260, justify="left").pack(anchor="w")
         ttk.Button(
             self._local_frame, text="Browse...",
             command=self._browse_local_model,
         ).grid(row=1, column=0, sticky="w", padx=4, pady=3)
+        ttk.Button(
+            self._local_frame, text="Test model",
+            command=self._test_local_model,
+        ).grid(row=1, column=1, sticky="w", padx=4, pady=3)
 
         # --- LLM word threshold ---
-        ttk.Label(frame, text="LLM word threshold:").grid(row=3, column=0, sticky="w", **pad)
+        threshold_row = len(_BACKEND_OPTIONS) * 2 + 1
+        ttk.Label(frame, text="LLM word threshold:").grid(
+            row=threshold_row, column=0, sticky="w", **pad
+        )
         self._threshold_var = tk.IntVar(value=self._settings.llm_word_threshold)
         ttk.Spinbox(
             frame, textvariable=self._threshold_var, from_=3, to=50, width=6,
-        ).grid(row=3, column=1, sticky="w", **pad)
+        ).grid(row=threshold_row, column=1, sticky="w", **pad)
         ttk.Label(
             frame, text="Inputs shorter than this skip the LLM for speed",
             foreground="gray",
-        ).grid(row=4, column=0, columnspan=2, sticky="w", **pad)
+        ).grid(row=threshold_row + 1, column=0, columnspan=2, sticky="w", **pad)
 
+        self._update_model_path_display(str(self._settings.local_model_path))
         self._refresh_formatter_sections()
+
+    def _update_model_path_display(self, path_str: str) -> None:
+        p = Path(path_str)
+        self._model_name_var.set(p.name if p.name else path_str)
+        self._model_dir_var.set(str(p.parent) if p.parent != p else "")
 
     def _build_advanced_tab(self, frame: ttk.Frame) -> None:
         pad = {"padx": 6, "pady": 4}
@@ -163,60 +193,173 @@ class SettingsWindow:
         ttk.Scale(
             frame, variable=self._vad_var, from_=200, to=1500,
             orient="horizontal", length=200,
-            command=lambda v: self._vad_var.set(int(float(v))),
+            command=lambda v: (
+                self._vad_var.set(int(float(v))),
+                self._vad_hint_var.set(self._vad_hint(int(float(v)))),
+            ),
         ).grid(row=1, column=1, sticky="ew", **pad)
         ttk.Label(frame, textvariable=self._vad_var).grid(row=1, column=2, sticky="w", **pad)
 
+        self._vad_hint_var = tk.StringVar(master=self._root, value="")
+        ttk.Label(frame, textvariable=self._vad_hint_var, foreground="gray").grid(
+            row=2, column=0, columnspan=3, sticky="w", padx=6, pady=(0, 4)
+        )
+        self._vad_hint_var.set(self._vad_hint(self._settings.vad_silence_ms))
+
         self._latency_var = tk.StringVar(value="")
         ttk.Label(frame, textvariable=self._latency_var, foreground="gray").grid(
-            row=2, column=0, columnspan=3, sticky="w", **pad
+            row=3, column=0, columnspan=3, sticky="w", **pad
         )
         self._update_latency_label()
 
-        # mic test output
-        self._mic_result_var = tk.StringVar(value="")
-        ttk.Label(frame, textvariable=self._mic_result_var, wraplength=320,
-                  justify="left").grid(row=3, column=0, columnspan=3, sticky="w", **pad)
+    def _build_status_tab(self, frame: ttk.Frame) -> None:
+        pad = {"padx": 6, "pady": 6}
+
+        llm_path = Path(self._settings.local_model_path)
+        llm_text = (
+            f"{llm_path.name} — file found" if llm_path.exists() else "model file not found"
+        )
+
+        self._status_whisper_var = tk.StringVar(
+            master=self._root,
+            value=f"{self._settings.whisper_model} — checking…",
+        )
+        self._status_llm_var = tk.StringVar(master=self._root, value=llm_text)
+        self._status_hotkey_var = tk.StringVar(
+            master=self._root,
+            value=f"{self._settings.hotkey} ({self._settings.recording_mode} mode)",
+        )
+
+        rows = [
+            ("Whisper model", self._status_whisper_var),
+            ("Local LLM",     self._status_llm_var),
+            ("Hotkey",        self._status_hotkey_var),
+        ]
+        for i, (label, var) in enumerate(rows):
+            ttk.Label(frame, text=label, width=14, anchor="w").grid(
+                row=i, column=0, sticky="w", **pad
+            )
+            ttk.Label(frame, textvariable=var, foreground="gray").grid(
+                row=i, column=1, sticky="w", **pad
+            )
+
+        ttk.Button(frame, text="Refresh", command=self._refresh_status).grid(
+            row=len(rows), column=0, columnspan=2, sticky="w", padx=6, pady=(12, 4)
+        )
 
     # ------------------------------------------------------------------
     # Dynamic section visibility
     # ------------------------------------------------------------------
 
+    def _refresh_status(self) -> None:
+        """Re-read current UI values and update status tab StringVars on a thread."""
+        whisper_model = self._whisper_var.get()
+        llm_path_str = self._local_model_path_var.get()
+        hotkey = self._hotkey_var.get()
+        mode = self._mode_var.get()
+
+        def _check() -> None:
+            llm_path = Path(llm_path_str)
+            llm_text = (
+                f"{llm_path.name} — file found" if llm_path.exists() else "model file not found"
+            )
+            whisper_text = f"{whisper_model} — ready"
+            hotkey_text = f"{hotkey} ({mode} mode)"
+            # Catch TclError in case the window was closed before the thread finished.
+            try:
+                self._root.after(0, lambda: self._status_whisper_var.set(whisper_text))
+                self._root.after(0, lambda: self._status_llm_var.set(llm_text))
+                self._root.after(0, lambda: self._status_hotkey_var.set(hotkey_text))
+            except Exception:
+                pass
+
+        threading.Thread(target=_check, daemon=True).start()
+
     def _refresh_formatter_sections(self) -> None:
-        backend_label = self._backend_var.get()
-        backend = _BACKEND_VALUES.get(backend_label, "fast")
-        if backend == "local":
+        if self._backend_var.get() == "local":
             self._local_frame.grid()
         else:
             self._local_frame.grid_remove()
 
+    @staticmethod
+    def _vad_hint(ms: int) -> str:
+        if ms < 300:
+            return "⚠ May cut off fast speakers"
+        elif ms <= 500:
+            return "✓ Recommended for most users"
+        elif ms <= 800:
+            return "Tolerates longer mid-sentence pauses"
+        else:
+            return "Long pause before transcription triggers"
+
     def _update_latency_label(self) -> None:
-        model = self._whisper_var.get() if hasattr(self, "_whisper_var") else self._settings.whisper_model
-        hint = _LATENCY_HINTS.get(model, "")
+        hint = _LATENCY_HINTS.get(self._whisper_var.get(), "")
         self._latency_var.set(f"Estimated Whisper latency: {hint}")
+
+    # ------------------------------------------------------------------
+    # Hotkey capture
+    # ------------------------------------------------------------------
+
+    def _start_hotkey_capture(self) -> None:
+        """Switch Record… button into listening mode and bind key events."""
+        self._record_btn.config(text="Press keys…")
+        self._capturing_keys: set = set()
+        self._win.bind("<KeyPress>", self._on_capture_key_press)
+        self._win.bind("<KeyRelease>", self._on_capture_key_release)
+        self._win.focus_set()
+
+    _MODIFIER_KEYSYMS = {
+        "Control_L", "Control_R", "Shift_L", "Shift_R",
+        "Alt_L", "Alt_R", "Super_L", "Super_R",
+    }
+
+    def _on_capture_key_press(self, event: tk.Event) -> None:
+        if event.keysym in self._MODIFIER_KEYSYMS:
+            self._capturing_keys.add(event.keysym)
+            return
+        parts: list[str] = []
+        if event.state & 0x4:
+            parts.append("ctrl")
+        if event.state & 0x1:
+            parts.append("shift")
+        if event.state & 0x8:
+            parts.append("alt")
+        parts.append(event.keysym.lower())
+        self._finish_hotkey_capture("+".join(parts))
+
+    def _on_capture_key_release(self, event: tk.Event) -> None:
+        self._capturing_keys.discard(event.keysym)
+
+    def _finish_hotkey_capture(self, combo: str) -> None:
+        self._hotkey_var.set(combo)
+        self._win.unbind("<KeyPress>")
+        self._win.unbind("<KeyRelease>")
+        self._record_btn.config(text="Record…")
 
     # ------------------------------------------------------------------
     # Button callbacks
     # ------------------------------------------------------------------
 
     def _test_mic(self) -> None:
-        if hasattr(self, "_mic_result_var"):
-            self._mic_result_var.set("Recording 3s…")
+        self._status_var.set("Test mic: recording 3s…")
         threading.Thread(target=self._run_mic_test, daemon=True).start()
 
     def _run_mic_test(self) -> None:
+        def _set(msg: str) -> None:
+            # StringVar.set from a non-main thread is unsafe; schedule on main loop.
+            # Catch TclError in case the window was closed before the thread finished.
+            try:
+                self._root.after(0, lambda: self._status_var.set(msg))
+            except Exception:
+                pass
+
         try:
-            import time
-            from src.config.settings import load_settings
             from src.transcription.whisper_engine import WhisperEngine
             import tempfile, os
 
-            # Use WhisperEngine in batch mode for the 3s clip
             engine = WhisperEngine(self._settings.whisper_model)
-            # Record 3 seconds via sounddevice if available, else show message
             try:
                 import sounddevice as sd
-                import numpy as np
                 import scipy.io.wavfile as wav
 
                 sample_rate = 16000
@@ -228,15 +371,37 @@ class SettingsWindow:
                 wav.write(tmp, sample_rate, audio)
                 text = engine.transcribe(tmp)
                 os.unlink(tmp)
-                if hasattr(self, "_mic_result_var"):
-                    self._mic_result_var.set(text or "(no speech detected)")
+                _set(f"Mic test: {text or '(no speech detected)'}")
             except ImportError:
-                if hasattr(self, "_mic_result_var"):
-                    self._mic_result_var.set("sounddevice not installed — mic test unavailable")
+                _set("sounddevice not installed — mic test unavailable")
         except Exception as exc:
             log.exception("Mic test failed")
-            if hasattr(self, "_mic_result_var"):
-                self._mic_result_var.set(f"Error: {exc}")
+            _set(f"Error: {exc}")
+
+    def _test_local_model(self) -> None:
+        self._status_var.set("Testing local model…")
+        threading.Thread(target=self._run_local_model_test, daemon=True).start()
+
+    def _run_local_model_test(self) -> None:
+        def _set(msg: str) -> None:
+            # Catch TclError in case the window was closed before the thread finished.
+            try:
+                self._root.after(0, lambda: self._status_var.set(msg))
+            except Exception:
+                pass
+
+        path_str = self._local_model_path_var.get()
+        if not Path(path_str).exists():
+            _set(f"Model file not found: {path_str}")
+            return
+        try:
+            from src.formatting.local_llm_formatter import LocalLLMFormatter
+            formatter = LocalLLMFormatter(model_path=path_str)
+            result = formatter.format("um testing the microphone right now")
+            _set(f"Model OK — output: \"{result}\"")
+        except Exception as exc:
+            log.exception("Local model test failed")
+            _set(f"Model failed to load: {exc}")
 
     def _browse_local_model(self) -> None:
         from tkinter import filedialog
@@ -244,31 +409,45 @@ class SettingsWindow:
             title="Select GGUF model file",
             filetypes=[("GGUF files", "*.gguf"), ("All files", "*.*")],
         )
-        if path and hasattr(self, "_local_model_path_var"):
+        if path:
             self._local_model_path_var.set(path)
+            self._update_model_path_display(path)
 
     # ------------------------------------------------------------------
-    # Save / cancel
+    # Save / apply / cancel
     # ------------------------------------------------------------------
 
-    def _save(self) -> None:
-        backend_label = self._backend_var.get() if hasattr(self, "_backend_var") else "Fast only"
-        backend = _BACKEND_VALUES.get(backend_label, "fast")
-        updated = Settings(
-            whisper_model=self._whisper_var.get() if hasattr(self, "_whisper_var") else self._settings.whisper_model,
-            hotkey=self._hotkey_var.get() if hasattr(self, "_hotkey_var") else self._settings.hotkey,
-            recording_mode=self._mode_var.get() if hasattr(self, "_mode_var") else self._settings.recording_mode,
-            language=self._lang_var.get() if hasattr(self, "_lang_var") else self._settings.language,
-            formatter_backend=backend,
-            llm_word_threshold=self._threshold_var.get() if hasattr(self, "_threshold_var") else self._settings.llm_word_threshold,
-            vad_silence_ms=self._vad_var.get() if hasattr(self, "_vad_var") else self._settings.vad_silence_ms,
-            local_model_path=Path(self._local_model_path_var.get()) if hasattr(self, "_local_model_path_var") else self._settings.local_model_path,
+    def _collect_settings(self) -> Settings:
+        # All widget vars are unconditionally created in _build_ui(); no hasattr guards needed.
+        return Settings(
+            whisper_model=self._whisper_var.get(),
+            hotkey=self._hotkey_var.get(),
+            recording_mode=self._mode_var.get(),
+            language=self._lang_var.get(),
+            formatter_backend=self._backend_var.get(),
+            llm_word_threshold=self._threshold_var.get(),
+            vad_silence_ms=self._vad_var.get(),
+            local_model_path=Path(self._local_model_path_var.get()),
             history_max=self._settings.history_max,
             models_dir=self._settings.models_dir,
             log_dir=self._settings.log_dir,
             training_pairs_path=self._settings.training_pairs_path,
         )
+
+    def _save(self) -> None:
+        updated = self._collect_settings()
         save_settings(updated)
         self._on_save(updated)
+        if hasattr(self, "_root"):
+            self._root.destroy()
+
+    def _apply(self) -> None:
+        updated = self._collect_settings()
+        save_settings(updated)
+        self._on_save(updated)
+        self._settings = updated
+        self._status_var.set("Settings applied.")
+
+    def _cancel(self) -> None:
         if hasattr(self, "_root"):
             self._root.destroy()
