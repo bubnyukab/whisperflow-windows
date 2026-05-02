@@ -152,3 +152,83 @@ class TestWindowLifecycle:
         win = _make_window(backend="fast")
         win._refresh_formatter_sections()
         win._ollama_frame.grid.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _save() preserves all Settings fields
+# ---------------------------------------------------------------------------
+
+class TestSavePreservesAllFields:
+    """_save() must round-trip every Settings field, not just the ones with UI controls."""
+
+    def _make_save_window(self, settings: Settings) -> tuple[SettingsWindow, list]:
+        saved: list = []
+        win = SettingsWindow(settings=settings, on_save=lambda s: saved.append(s))
+        win._ollama_frame = MagicMock()
+        win._local_frame = MagicMock()
+        backend_label = {v: k for k, v in _BACKEND_VALUES.items()}.get(
+            settings.formatter_backend, "Fast only"
+        )
+        win._backend_var = MagicMock()
+        win._backend_var.get.return_value = backend_label
+        win._whisper_var = MagicMock()
+        win._whisper_var.get.return_value = settings.whisper_model
+        win._hotkey_var = MagicMock()
+        win._hotkey_var.get.return_value = settings.hotkey
+        win._mode_var = MagicMock()
+        win._mode_var.get.return_value = settings.recording_mode
+        win._lang_var = MagicMock()
+        win._lang_var.get.return_value = settings.language
+        win._ollama_model_var = MagicMock()
+        win._ollama_model_var.get.return_value = settings.ollama_model
+        win._ollama_url_var = MagicMock()
+        win._ollama_url_var.get.return_value = settings.ollama_url
+        win._threshold_var = MagicMock()
+        win._threshold_var.get.return_value = settings.llm_word_threshold
+        win._vad_var = MagicMock()
+        win._vad_var.get.return_value = settings.vad_silence_ms
+        win._local_model_path_var = MagicMock()
+        win._local_model_path_var.get.return_value = str(settings.local_model_path)
+        win._root = MagicMock()
+        return win, saved
+
+    def test_training_pairs_path_preserved(self) -> None:
+        from pathlib import Path
+        custom_path = Path("/custom/training.jsonl")
+        s = Settings(training_pairs_path=custom_path)
+        win, saved = self._make_save_window(s)
+        with patch("src.config.settings.save_settings"):
+            win._save()
+        assert saved[0].training_pairs_path == custom_path
+
+    def test_models_dir_preserved(self) -> None:
+        from pathlib import Path
+        custom_dir = Path("/custom/models")
+        s = Settings(models_dir=custom_dir)
+        win, saved = self._make_save_window(s)
+        with patch("src.config.settings.save_settings"):
+            win._save()
+        assert saved[0].models_dir == custom_dir
+
+    def test_log_dir_preserved(self) -> None:
+        from pathlib import Path
+        custom_dir = Path("/custom/logs")
+        s = Settings(log_dir=custom_dir)
+        win, saved = self._make_save_window(s)
+        with patch("src.config.settings.save_settings"):
+            win._save()
+        assert saved[0].log_dir == custom_dir
+
+    def test_history_max_preserved(self) -> None:
+        s = Settings(history_max=99)
+        win, saved = self._make_save_window(s)
+        with patch("src.config.settings.save_settings"):
+            win._save()
+        assert saved[0].history_max == 99
+
+    def test_ollama_timeout_preserved(self) -> None:
+        s = Settings(ollama_timeout=30.0)
+        win, saved = self._make_save_window(s)
+        with patch("src.config.settings.save_settings"):
+            win._save()
+        assert saved[0].ollama_timeout == 30.0

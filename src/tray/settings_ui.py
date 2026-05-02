@@ -16,14 +16,13 @@ log = logging.getLogger(__name__)
 _WHISPER_MODELS = ["tiny.en", "base.en", "medium.en", "large-v3"]
 _OLLAMA_MODELS = ["phi3:mini", "mistral:7b", "llama3.1:8b", "gemma2:9b"]
 _LANGUAGES = ["auto", "en", "de", "fr", "es", "it", "pt", "zh", "ja", "ko", "ru"]
-_BACKENDS = ["Fast only", "Local LLM (fine-tuned)", "Ollama (local, free)", "Claude API (paid)"]
+_BACKENDS = ["Fast only", "Local LLM (fine-tuned)", "Ollama (local, free)"]
 
 # Map display name → internal value
 _BACKEND_VALUES = {
     "Fast only": "fast",
     "Local LLM (fine-tuned)": "local",
     "Ollama (local, free)": "ollama",
-    "Claude API (paid)": "claude",
 }
 _BACKEND_LABELS = {v: k for k, v in _BACKEND_VALUES.items()}
 
@@ -145,26 +144,6 @@ class SettingsWindow:
             command=self._check_ollama_connection,
         ).grid(row=2, column=0, sticky="w", padx=4, pady=3)
 
-        # --- Claude section ---
-        self._claude_frame = ttk.LabelFrame(frame, text="Claude API settings", padding=8)
-        self._claude_frame.grid(row=2, column=0, columnspan=2, sticky="ew",
-                                padx=6, pady=(4, 4))
-
-        ttk.Label(self._claude_frame, text="API key:").grid(row=0, column=0, sticky="w", padx=4, pady=3)
-        self._api_key_var = tk.StringVar(value=self._settings.anthropic_api_key)
-        ttk.Entry(
-            self._claude_frame, textvariable=self._api_key_var, show="•", width=30
-        ).grid(row=0, column=1, sticky="ew", padx=4, pady=3)
-
-        self._claude_status_var = tk.StringVar(value="")
-        ttk.Label(self._claude_frame, textvariable=self._claude_status_var).grid(
-            row=1, column=1, sticky="w", padx=4, pady=2
-        )
-        ttk.Button(
-            self._claude_frame, text="Test key",
-            command=self._test_claude_key,
-        ).grid(row=1, column=0, sticky="w", padx=4, pady=3)
-
         # --- Local LLM section ---
         self._local_frame = ttk.LabelFrame(frame, text="Local LLM settings", padding=8)
         self._local_frame.grid(row=1, column=0, columnspan=2, sticky="ew",
@@ -237,19 +216,12 @@ class SettingsWindow:
         backend = _BACKEND_VALUES.get(backend_label, "fast")
         if backend == "ollama":
             self._ollama_frame.grid()
-            self._claude_frame.grid_remove()
-            self._local_frame.grid_remove()
-        elif backend == "claude":
-            self._ollama_frame.grid_remove()
-            self._claude_frame.grid()
             self._local_frame.grid_remove()
         elif backend == "local":
             self._ollama_frame.grid_remove()
-            self._claude_frame.grid_remove()
             self._local_frame.grid()
         else:
             self._ollama_frame.grid_remove()
-            self._claude_frame.grid_remove()
             self._local_frame.grid_remove()
 
     def _update_latency_label(self) -> None:
@@ -274,25 +246,6 @@ class SettingsWindow:
             self._root.after(0, lambda: self._ollama_status_var.set(msg))
 
         threading.Thread(target=_check, daemon=True).start()
-
-    def _test_claude_key(self) -> None:
-        key = self._api_key_var.get().strip()
-        if not key:
-            self._claude_status_var.set("FAIL — key is empty")
-            return
-        self._claude_status_var.set("Testing...")
-
-        def _test() -> None:
-            try:
-                import anthropic
-                client = anthropic.Anthropic(api_key=key)
-                client.models.list()
-                self._root.after(0, lambda: self._claude_status_var.set("OK"))
-            except Exception as exc:
-                msg = f"FAIL — {exc}"
-                self._root.after(0, lambda: self._claude_status_var.set(msg))
-
-        threading.Thread(target=_test, daemon=True).start()
 
     def _test_mic(self) -> None:
         if hasattr(self, "_mic_result_var"):
@@ -364,7 +317,7 @@ class SettingsWindow:
             history_max=self._settings.history_max,
             models_dir=self._settings.models_dir,
             log_dir=self._settings.log_dir,
-            anthropic_api_key=self._api_key_var.get() if hasattr(self, "_api_key_var") else self._settings.anthropic_api_key,
+            training_pairs_path=self._settings.training_pairs_path,
         )
         save_settings(updated)
         self._on_save(updated)

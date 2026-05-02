@@ -19,7 +19,7 @@ _MAX_TOKENS = 200
 _INSTALL_HINT = (
     "llama-cpp-python is not installed. Run:\n"
     "  pip install llama-cpp-python==0.3.4 "
-    "--extra-index-url https://huggingface.github.io/llama-cpp-python/whl/cu124"
+    "--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124"
 )
 
 
@@ -61,7 +61,7 @@ class LocalLLMFormatter:
         self._llm = Llama(
             model_path=str(path),
             n_gpu_layers=n_gpu_layers,
-            n_ctx=n_ctx,
+            n_ctx=2048,
             n_batch=n_batch,
             seed=0,
             verbose=False,
