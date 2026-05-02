@@ -46,9 +46,6 @@ class TestSettingsDefaults:
     def test_history_max(self) -> None:
         assert Settings().history_max == 50
 
-    def test_anthropic_api_key_default_empty(self) -> None:
-        assert Settings().anthropic_api_key == ""
-
     def test_models_dir_is_path(self) -> None:
         assert isinstance(Settings().models_dir, Path)
 
@@ -65,8 +62,6 @@ class TestSettingsDefaults:
 class TestLoadSettings:
     def test_returns_defaults_when_no_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", tmp_path / "config.json")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
         assert s.whisper_model == "medium.en"
         assert s.llm_word_threshold == 4
@@ -74,14 +69,12 @@ class TestLoadSettings:
     def test_creates_config_file_when_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_path = tmp_path / "config.json"
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         load_settings()
         assert config_path.exists()
 
     def test_creates_parent_dirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_path = tmp_path / "subdir" / "config.json"
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         load_settings()
         assert config_path.parent.exists()
 
@@ -89,7 +82,6 @@ class TestLoadSettings:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"whisper_model": "base.en", "llm_word_threshold": 5}))
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
         assert s.whisper_model == "base.en"
         assert s.llm_word_threshold == 5
@@ -98,7 +90,6 @@ class TestLoadSettings:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"unknown_key": "value", "whisper_model": "base.en"}))
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
         assert s.whisper_model == "base.en"
 
@@ -106,32 +97,13 @@ class TestLoadSettings:
         config_path = tmp_path / "config.json"
         config_path.write_text("{{not valid json")
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
         assert s.whisper_model == "medium.en"
-
-    def test_api_key_from_environment(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        config_path = tmp_path / "config.json"
-        monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
-        s = load_settings()
-        assert s.anthropic_api_key == "sk-test-key"
-
-    def test_api_key_not_loaded_from_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"anthropic_api_key": "should-not-appear"}))
-        monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        s = load_settings()
-        assert s.anthropic_api_key == ""
 
     def test_models_dir_loaded_as_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"models_dir": "/some/custom/path"}))
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
         assert isinstance(s.models_dir, Path)
         assert s.models_dir == Path("/some/custom/path")
@@ -140,7 +112,6 @@ class TestLoadSettings:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"log_dir": "/logs/custom"}))
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
         s = load_settings()
         assert isinstance(s.log_dir, Path)
         assert s.log_dir == Path("/logs/custom")
@@ -153,13 +124,6 @@ class TestSaveSettings:
         save_settings(Settings(whisper_model="medium.en"))
         data = json.loads(config_path.read_text())
         assert data["whisper_model"] == "medium.en"
-
-    def test_excludes_api_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        config_path = tmp_path / "config.json"
-        monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        save_settings(Settings(anthropic_api_key="sk-secret"))
-        data = json.loads(config_path.read_text())
-        assert "anthropic_api_key" not in data
 
     def test_creates_parent_dirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_path = tmp_path / "subdir" / "config.json"
@@ -178,8 +142,6 @@ class TestSaveSettings:
     def test_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_path = tmp_path / "config.json"
         monkeypatch.setattr("src.config.settings.SETTINGS_PATH", config_path)
-        monkeypatch.setattr("src.config.settings.load_dotenv", lambda **kw: None)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         original = Settings(whisper_model="base.en", llm_word_threshold=20, history_max=100)
         save_settings(original)
         loaded = load_settings()

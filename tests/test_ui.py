@@ -27,7 +27,6 @@ def _make_window(backend: str = "ollama") -> SettingsWindow:
     )
     # Inject mock frames that the visibility logic operates on
     win._ollama_frame = MagicMock()
-    win._claude_frame = MagicMock()
     win._local_frame = MagicMock()
     backend_label = {v: k for k, v in _BACKEND_VALUES.items()}.get(backend, "Fast only")
     win._backend_var = MagicMock()
@@ -48,17 +47,11 @@ class TestBackendDropdownPresent:
     def test_backend_labels_include_ollama(self) -> None:
         assert "Ollama (local, free)" in _BACKENDS
 
-    def test_backend_labels_include_claude(self) -> None:
-        assert "Claude API (paid)" in _BACKENDS
-
     def test_backend_values_map_fast_only(self) -> None:
         assert _BACKEND_VALUES["Fast only"] == "fast"
 
     def test_backend_values_map_ollama(self) -> None:
         assert _BACKEND_VALUES["Ollama (local, free)"] == "ollama"
-
-    def test_backend_values_map_claude(self) -> None:
-        assert _BACKEND_VALUES["Claude API (paid)"] == "claude"
 
 
 # ---------------------------------------------------------------------------
@@ -70,11 +63,6 @@ class TestOllamaBackendSelected:
         win = _make_window(backend="ollama")
         win._refresh_formatter_sections()
         win._ollama_frame.grid.assert_called_once()
-
-    def test_claude_frame_hidden_when_ollama_selected(self) -> None:
-        win = _make_window(backend="ollama")
-        win._refresh_formatter_sections()
-        win._claude_frame.grid_remove.assert_called_once()
 
     def test_ollama_frame_not_removed_when_ollama_selected(self) -> None:
         win = _make_window(backend="ollama")
@@ -158,13 +146,7 @@ class TestWindowLifecycle:
         win = _make_window(backend="fast")
         win._refresh_formatter_sections()
         win._ollama_frame.grid_remove.assert_called_once()
-        win._claude_frame.grid_remove.assert_called_once()
-
-    def test_claude_backend_shows_claude_frame(self) -> None:
-        win = _make_window(backend="claude")
-        win._refresh_formatter_sections()
-        win._claude_frame.grid.assert_called_once()
-        win._ollama_frame.grid_remove.assert_called_once()
+        win._local_frame.grid_remove.assert_called_once()
 
     def test_switching_from_ollama_to_fast_hides_ollama(self) -> None:
         win = _make_window(backend="fast")

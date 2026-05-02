@@ -46,9 +46,6 @@ class TestParseArgs:
     def test_backend_ollama_override(self) -> None:
         assert _parse(["--backend", "ollama"]).backend == "ollama"
 
-    def test_backend_claude_override(self) -> None:
-        assert _parse(["--backend", "claude"]).backend == "claude"
-
 
 # ---------------------------------------------------------------------------
 # _apply_cli_overrides
@@ -88,9 +85,9 @@ class TestApplyCliOverrides:
         from main import _apply_cli_overrides
         from src.config.settings import Settings
         s = Settings()
-        result = _apply_cli_overrides(self._make_args(model="large-v3", backend="claude"), s)
+        result = _apply_cli_overrides(self._make_args(model="large-v3", backend="local"), s)
         assert result.whisper_model == "large-v3"
-        assert result.formatter_backend == "claude"
+        assert result.formatter_backend == "local"
 
     def test_original_settings_not_mutated(self) -> None:
         from main import _apply_cli_overrides
