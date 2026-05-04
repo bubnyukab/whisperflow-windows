@@ -313,9 +313,22 @@ class SettingsWindow:
         "Alt_L", "Alt_R", "Super_L", "Super_R",
     }
 
+    _BLOCKED_FINAL_KEYS = {
+        "return", "enter", "escape", "backspace", "tab",
+        "delete", "space",
+        "shift_l", "shift_r", "control_l", "control_r",
+        "alt_l", "alt_r", "super_l", "super_r",
+    }
+
     def _on_capture_key_press(self, event: tk.Event) -> None:
         if event.keysym in self._MODIFIER_KEYSYMS:
             self._capturing_keys.add(event.keysym)
+            return
+        if event.keysym.lower() in self._BLOCKED_FINAL_KEYS:
+            self._status_var.set(
+                f"Key '{event.keysym}' can't be used as a hotkey trigger — "
+                "try a letter, number, or function key."
+            )
             return
         parts: list[str] = []
         if event.state & 0x4:

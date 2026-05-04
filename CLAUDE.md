@@ -33,6 +33,24 @@ Target latency: <700ms end-to-end on GPU, <1.5s on CPU-only machines.
 - Install deps with: `.venv\Scripts\pip install -r requirements.txt`
 - Run all Python commands through `.venv\Scripts\python`, not system python
 
+## CUDA/GPU Dependencies
+- Always install PyTorch and llama-cpp-python with CUDA 12.4 wheels — never the default CPU-only PyPI builds
+- Pre-flight before any ML install: `.venv\Scripts\python -c "import torch; print(torch.version.cuda, torch.cuda.is_available())"`
+- If `torch.cuda.is_available()` is False, reinstall torch with the correct CUDA wheel before proceeding
+- llama-cpp-python CUDA wheel index: `https://abetlen.github.io/llama-cpp-python/whl/cu124`
+
+## Recommendation Standard
+- Always recommend excellence-tier / best-in-class solutions, not average or compromise approaches
+- When trade-offs exist, lead with the optimal solution; only mention compromises if explicitly asked
+
+## Testing and Commit Workflow
+- Run the full test suite before committing; target all tests passing (e.g. 282/282)
+- After multi-file changes, commit and push to origin/main without asking for confirmation unless the operation is destructive
+
+## Audit Prompts
+- Before generating audit or cleanup prompts, verify current file state — do not reference files or configs that no longer exist in the repo
+- Check that assumed standard files (.env, config stubs, etc.) are actually present before including them in generated instructions
+
 ## Available MCP Servers
 - **Superpowers** — filesystem ops, running scripts, reading logs
 - **Context7** — look up latest docs for RealtimeSTT, faster-whisper,

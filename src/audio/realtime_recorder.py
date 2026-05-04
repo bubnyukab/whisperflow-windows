@@ -58,13 +58,18 @@ class RealtimeRecorder:
             log.error("RealtimeSTT is not installed; recording unavailable")
             return
         try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            compute_type = "float16" if device == "cuda" else "int8"
+            log.debug("RealtimeRecorder: using device=%s compute_type=%s", device, compute_type)
             recorder = AudioToTextRecorder(
                 model=self._settings.whisper_model,
-                language=self._settings.language,
+                language=None if self._settings.language == "auto" else self._settings.language,
+                device=device,
+                compute_type=compute_type,
                 post_speech_silence_duration=self._settings.vad_silence_ms / 1000,
                 silero_sensitivity=0.4,
-                compute_type="int8",  # fastest on CPU; eliminates the float32 fallback warning
-                beam_size=1,          # greedy decoding — ~30% faster, imperceptible accuracy loss
+                beam_size=1,
                 spinner=False,
                 level=logging.WARNING,
             )

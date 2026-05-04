@@ -13,6 +13,19 @@ log = logging.getLogger(__name__)
 _DEBOUNCE_S = 0.15
 _KEY_ALIASES: dict[str, str] = {"win": "cmd", "windows": "cmd"}
 
+# Tkinter keysym names that differ from pynput's Key enum names.
+_KEYSYM_TO_PYNPUT: dict[str, str] = {
+    "return":    "enter",
+    "escape":    "esc",
+    "delete":    "delete",
+    "backspace": "backspace",
+    "tab":       "tab",
+    "up":        "up",
+    "down":      "down",
+    "left":      "left",
+    "right":     "right",
+}
+
 
 def _to_pynput_format(hotkey: str) -> str:
     """Convert 'keyboard'-style 'ctrl+f9' to pynput '<ctrl>+<f9>'.
@@ -24,6 +37,7 @@ def _to_pynput_format(hotkey: str) -> str:
     for part in hotkey.lower().split("+"):
         part = part.strip()
         part = _KEY_ALIASES.get(part, part)
+        part = _KEYSYM_TO_PYNPUT.get(part, part)
         tokens.append(part if (len(part) == 1 and part.isalnum()) else f"<{part}>")
     return "+".join(tokens)
 
@@ -68,7 +82,15 @@ class HotkeyListener:
         if self._listening:
             return
         pynput_hotkey = _to_pynput_format(self._hotkey)
-        parsed = keyboard.HotKey.parse(pynput_hotkey)
+        try:
+            parsed = keyboard.HotKey.parse(pynput_hotkey)
+        except ValueError as exc:
+            log.error(
+                "Invalid hotkey %r (pynput format: %r): %s — falling back to default",
+                self._hotkey, pynput_hotkey, exc,
+            )
+            fallback = _to_pynput_format("ctrl+shift+space")
+            parsed = keyboard.HotKey.parse(fallback)
         self._hotkey_keys = frozenset(parsed)
         self._hk = keyboard.HotKey(parsed, self._on_activate)
         self._active = False

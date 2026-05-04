@@ -1,10 +1,11 @@
-"""Quantize an fp16 GGUF cleaner to Q4_K_M using libllama via llama-cpp-python.
+"""Quantize an fp16 GGUF cleaner using libllama via llama-cpp-python.
 
 Run from the project root:
     .venv/Scripts/python.exe tools/quantize_gguf.py
     .venv/Scripts/python.exe tools/quantize_gguf.py \
         --src models/whisperflow-cleaner-v2/model-fp16.gguf \
-        --dst models/whisperflow-cleaner-v2/model.gguf
+        --dst models/whisperflow-cleaner-v2/model.gguf \
+        --ftype Q4_0
 """
 
 from __future__ import annotations
@@ -25,13 +26,22 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SRC = ROOT / "models" / "whisperflow-cleaner" / "model-fp16.gguf"
 DEFAULT_DST = ROOT / "models" / "whisperflow-cleaner" / "model.gguf"
 
+FTYPE_MAP = {
+    "Q4_K_M": lc.LLAMA_FTYPE_MOSTLY_Q4_K_M,
+    "Q4_0":   lc.LLAMA_FTYPE_MOSTLY_Q4_0,
+    "Q5_K_M": lc.LLAMA_FTYPE_MOSTLY_Q5_K_M,
+    "Q8_0":   lc.LLAMA_FTYPE_MOSTLY_Q8_0,
+}
+
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Quantize fp16 GGUF to Q4_K_M.")
+    parser = argparse.ArgumentParser(description="Quantize fp16 GGUF to a target format.")
     parser.add_argument("--src", type=Path, default=DEFAULT_SRC,
                         help="Input fp16 GGUF path")
     parser.add_argument("--dst", type=Path, default=DEFAULT_DST,
-                        help="Output Q4_K_M GGUF path")
+                        help="Output quantized GGUF path")
+    parser.add_argument("--ftype", choices=list(FTYPE_MAP), default="Q4_0",
+                        help="Quantization format (default: Q4_0)")
     return parser.parse_args()
 
 
@@ -40,14 +50,15 @@ def main() -> None:
     if not args.src.exists():
         raise FileNotFoundError(f"Missing source GGUF: {args.src}")
 
+    ftype_value = FTYPE_MAP[args.ftype]
     print(f"Source : {args.src}  ({args.src.stat().st_size / 1024**3:.2f} GB)")
     print(f"Target : {args.dst}")
-    print(f"Type   : Q4_K_M (ftype={lc.LLAMA_FTYPE_MOSTLY_Q4_K_M})")
+    print(f"Type   : {args.ftype} (ftype={ftype_value})")
 
     args.dst.parent.mkdir(parents=True, exist_ok=True)
 
     params = lc.llama_model_quantize_default_params()
-    params.ftype = lc.LLAMA_FTYPE_MOSTLY_Q4_K_M
+    params.ftype = ftype_value
 
     t0 = time.perf_counter()
     ret = lc.llama_model_quantize(
